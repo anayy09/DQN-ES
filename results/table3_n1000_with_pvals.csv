@@ -1,0 +1,9 @@
+algorithm,avg_latency_ms_mean±std (p_corr vs DQN-ES),avg_energy_mj_mean±std (p_corr vs DQN-ES),avg_privacy_risk_mean±std (p_corr vs DQN-ES),sla_violation_pct_mean±std (p_corr vs DQN-ES)
+DQN-ES,71.720 ± 2.803,7.198 ± 0.368,0.396 ± 0.004,0.600 ± 0.203
+PSO,66.213 ± 2.538 (p=4.58e-07*),6.061 ± 0.308 (p=1.71e-09*),0.427 ± 0.006 (p=5.74e-10*),0.223 ± 0.133 (p=5.91e-07*)
+ACO,86.043 ± 4.438 (p=5.74e-10*),11.912 ± 0.898 (p=5.74e-10*),0.697 ± 0.015 (p=5.74e-10*),0.003 ± 0.018 (p=6.04e-10*)
+HS-HHO,65.913 ± 2.558 (p=2.30e-07*),5.979 ± 0.313 (p=1.05e-09*),0.427 ± 0.006 (p=5.74e-10*),0.223 ± 0.133 (p=5.91e-07*)
+ES-only,65.913 ± 2.558 (p=2.30e-07*),5.979 ± 0.313 (p=1.05e-09*),0.427 ± 0.006 (p=5.74e-10*),0.223 ± 0.133 (p=5.91e-07*)
+DQN-only,228.264 ± 15.314 (p=5.74e-10*),34.947 ± 2.709 (p=5.74e-10*),0.303 ± 0.020 (p=5.74e-10*),6.200 ± 0.562 (p=5.74e-10*)
+
+"Footnote: p_corrected = Wilcoxon rank-sum p × 20 (Bonferroni correction, family size = 5 baselines × 4 metrics = 20 tests), alpha=0.05. * indicates p_corr < 0.05. Baselines: PSO, ACO, HS-HHO, ES-only, DQN-only."

@@ -1,0 +1,20 @@
+FRAMING NOTE (Fix A — PSO+DQN vs DQN-ES assessment)
+=====================================================
+
+Purpose: Determine whether the BBO inner-loop specifically contributes
+to DQN-ES's advantages, or whether any DRL+bio-inspired hybrid
+(e.g., PSO+DQN) achieves the same result.
+
+Reference scale: N=1000 tasks, 30 MC replicates.
+
+Results:
+  avg_latency_ms:  DQN-ES=71.720  PSO+DQN=73.739  diff=+2.8%  p_corr=7.202e-02  [not significant]
+  avg_energy_mj:  DQN-ES=7.198  PSO+DQN=7.587  diff=+5.4%  p_corr=6.891e-03  [SIGNIFICANT]
+  avg_privacy_risk:  DQN-ES=0.396  PSO+DQN=0.392  diff=-1.0%  p_corr=2.584e-01  [not significant]
+  sla_violation_pct:  DQN-ES=0.600  PSO+DQN=0.770  diff=+28.3%  p_corr=5.309e-02  [not significant]
+
+FRAMING RECOMMENDATION:
+  DQN-ES and PSO+DQN are statistically indistinguishable on privacy (<5% diff).  REFRAMING REQUIRED: The contribution is the DRL+bio-inspired coupling  design, not BBO specifically.  Remove any claims that BBO uniquely  drives the privacy advantage.  Retitle contribution as:  "Hybrid DRL + bio-inspired inner search for CI-adaptive offloading."
+
+NON-LINEAR WEIGHT CONTRIBUTION:
+  Non-linear weights do NOT separate from flat on all-high-CI workload.  REMOVE non-linear CI weight functions from contributions list.  Report full negative result in Section V-F.
