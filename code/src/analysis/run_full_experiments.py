@@ -83,7 +83,9 @@ def _run_single(alg_name, sched_cls, n_tasks, run_id, raw_dir=None,
     seeds, topo, tasks = build_synthetic_replicate(
         run_id, n_tasks, 'mixed', n_fog_nodes=n_fog_nodes,
         task_overrides=task_overrides)
-    results, sched = run_scheduler(sched_cls, topo, tasks, seeds)
+    results, sched = run_scheduler(
+        sched_cls, topo, tasks, seeds,
+        warm_start_tasks=(task_overrides or {}).get('warm_start_tasks'))
     if raw_dir is not None and results:
         write_raw_log(results, raw_log_path(raw_dir, n_tasks, alg_name, run_id),
                       alg_name, run_id, n_tasks)
@@ -108,6 +110,7 @@ def _run_single(alg_name, sched_cls, n_tasks, run_id, raw_dir=None,
     }
     add_steady_state(metrics, results)
     add_queue_metrics(metrics, results)
+    metrics['warm_started'] = float(getattr(sched, 'warm_started_with', 0) > 0)
 
     epsilon_history = getattr(sched, 'epsilon_history', None)
     return metrics, (list(epsilon_history) if epsilon_history else None)
@@ -339,6 +342,8 @@ def main():
     parser.add_argument('--load-rho', type=float, default=None,
                         help='Target offered edge utilisation (E7), sets the '
                              'absolute arrival rate')
+    parser.add_argument('--warm-start', type=int, default=None,
+                        help='Pre-train DQN arms on N_pre tasks (E12)')
     parser.add_argument('--result-size-bits', type=int, default=None,
                         help='Override result size S_res (sensitivity; '
                              'config RESULT_SIZE_SENSITIVITY_BITS)')
@@ -353,7 +358,8 @@ def main():
                  'result_size_bits': args.result_size_bits,
                  'arrival_process': (args.arrival if args.arrival != 'poisson'
                                      else None),
-                 'load_rho': args.load_rho}
+                 'load_rho': args.load_rho,
+                 'warm_start_tasks': args.warm_start}
     overrides = {k: v for k, v in overrides.items() if v is not None} or None
     results_dir = (Path(args.output) if args.output
                    else project_root / 'results')

@@ -210,6 +210,10 @@ MMPP2_SWITCH_PROBS:     tuple = (0.02, 0.10)
 # the scheduler and is reported per run (edge_utilisation).
 LOAD_RHO_TARGETS:       list  = [0.3, 0.6, 0.85]
 
+# Warm start (plan E12): pre-train DQN schedulers on N_pre synthetic tasks
+# from the replicate's disjoint 'pretrain' seed stream before evaluation.
+WARM_START_SWEEP:       list  = [500, 2000]
+
 
 # ---------------------------------------------------------------------------
 # Adversarial attack bursts (environment.py)

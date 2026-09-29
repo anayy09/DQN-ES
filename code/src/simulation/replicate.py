@@ -41,6 +41,7 @@ def to_healthcare_task(t, topology: NetworkTopology) -> HealthcareTask:
 # generation).  Other condition keys (warm start, CI noise) are added below.
 TASK_OVERRIDE_KEYS = ('ecg_payload_bits', 'result_size_bits')
 WORKLOAD_KEYS = ('arrival_process', 'load_rho')
+SCHEDULER_KEYS = ('warm_start_tasks',)
 
 
 def apply_task_overrides(tasks: List[HealthcareTask],
@@ -52,7 +53,8 @@ def apply_task_overrides(tasks: List[HealthcareTask],
     """
     if not overrides:
         return tasks
-    unknown = set(overrides) - set(TASK_OVERRIDE_KEYS) - set(WORKLOAD_KEYS)
+    unknown = (set(overrides) - set(TASK_OVERRIDE_KEYS) - set(WORKLOAD_KEYS)
+               - set(SCHEDULER_KEYS))
     if unknown:
         raise KeyError(f'unknown task overrides: {sorted(unknown)}')
     for t in tasks:
@@ -76,6 +78,8 @@ def overrides_tag(overrides: Optional[dict]) -> str:
         parts.append(str(overrides['arrival_process']))
     if overrides.get('load_rho') is not None:
         parts.append(f"rho{overrides['load_rho']:g}")
+    if overrides.get('warm_start_tasks'):
+        parts.append(f"warm{int(overrides['warm_start_tasks'])}")
     return '_'.join(parts)
 
 
@@ -116,16 +120,46 @@ def build_synthetic_replicate(
     return seeds, topo, tasks
 
 
+def warm_start(sched, topology: NetworkTopology, seeds: dict,
+               n_pre: int) -> bool:
+    """
+    Pre-train a DQN scheduler (plan E12) on n_pre synthetic tasks drawn from
+    the replicate's 'pretrain' seed stream (disjoint from every evaluation
+    stream), on the same topology.  Network weights, replay buffer and the
+    decayed epsilon carry over; queues, routing history, the pending
+    transition and per-episode logs are reset.  Returns False (no-op) for
+    schedulers without a learner.
+    """
+    if not n_pre or not hasattr(sched, '_online_net'):
+        return False
+    from src.data_ingestion.event_generator import generate_synthetic_tasks
+    pre_seed = seeds['pretrain']
+    pre = [to_healthcare_task(t, topology) for t in
+           generate_synthetic_tasks(int(n_pre), 'mixed', seed=pre_seed)]
+    OffloadingEnvironment(topology, sched, n_tasks=len(pre),
+                          seed=pre_seed + 1).run(pre)
+    sched.offload_history = {}
+    sched._pending = None
+    for attr in ('epsilon_history', 'dispatch_times_ms'):
+        if hasattr(sched, attr):
+            setattr(sched, attr, [])
+    sched.warm_started_with = int(n_pre)
+    return True
+
+
 def run_scheduler(
     sched_cls,
     topology: NetworkTopology,
     tasks: List[HealthcareTask],
     seeds: dict,
     sched_kwargs: Optional[dict] = None,
+    warm_start_tasks: Optional[int] = None,
 ):
     """Build the scheduler with the replicate seed and run the episode."""
     sched = make_scheduler(sched_cls, topology, seeds['scheduler'],
                            **(sched_kwargs or {}))
+    if warm_start_tasks:
+        warm_start(sched, topology, seeds, warm_start_tasks)
     env = OffloadingEnvironment(topology, sched, n_tasks=len(tasks),
                                 seed=seeds['env'])
     results = env.run(tasks)
