@@ -214,6 +214,14 @@ LOAD_RHO_TARGETS:       list  = [0.3, 0.6, 0.85]
 # from the replicate's disjoint 'pretrain' seed stream before evaluation.
 WARM_START_SWEEP:       list  = [500, 2000]
 
+# CI noise (plan E14): perturbs only the Phi the scheduler sees; logs and
+# labels keep the true Phi.  Gaussian sigma (clipped to [0, 1]) and a
+# tier-misclassification probability (Phi redrawn uniformly inside one of
+# the other two CI_TIER_BOUNDS tiers).  Misclassification is applied first
+# when both are set.
+CI_NOISE_SIGMAS:        list  = [0.05, 0.1, 0.2]
+CI_MISCLASS_PROBS:      list  = [0.1, 0.2]
+
 
 # ---------------------------------------------------------------------------
 # Adversarial attack bursts (environment.py)

@@ -42,10 +42,42 @@ def to_healthcare_task(t, topology: NetworkTopology) -> HealthcareTask:
 TASK_OVERRIDE_KEYS = ('ecg_payload_bits', 'result_size_bits')
 WORKLOAD_KEYS = ('arrival_process', 'load_rho')
 SCHEDULER_KEYS = ('warm_start_tasks',)
+CI_NOISE_KEYS = ('ci_noise_sigma', 'ci_misclass_prob')
+
+
+def perturb_ci(tasks: List[HealthcareTask], sigma: Optional[float],
+               misclass_prob: Optional[float], seed: int) -> None:
+    """
+    E14: replace each task's scheduler-visible ci_score by a perturbed value
+    and keep the true value in ci_true.  With probability misclass_prob the
+    value is redrawn uniformly inside one of the other two CI tiers; then
+    Gaussian noise N(0, sigma^2) is added and the result clipped to [0, 1].
+    """
+    import numpy as np
+    from src.config import CI_TIER_BOUNDS
+    lo, hi = CI_TIER_BOUNDS
+    tiers = [(0.0, lo), (lo, hi), (hi, 1.0)]
+    rng = np.random.default_rng(seed)
+    for t in tasks:
+        true = t.ci_score if t.ci_true is None else t.ci_true
+        v = true
+        # Draw both variates for every task so the noise sequence does not
+        # depend on which options are active.
+        u_mis, u_tier, u_val, z = rng.random(), rng.random(), rng.random(), rng.normal()
+        if misclass_prob and u_mis < misclass_prob:
+            cur = 0 if true < lo else (1 if true < hi else 2)
+            other = [i for i in range(3) if i != cur][int(u_tier * 2)]
+            a, b = tiers[other]
+            v = a + u_val * (b - a)
+        if sigma:
+            v = v + sigma * z
+        t.ci_true = true
+        t.ci_score = float(min(1.0, max(0.0, v)))
 
 
 def apply_task_overrides(tasks: List[HealthcareTask],
-                         overrides: Optional[dict]) -> List[HealthcareTask]:
+                         overrides: Optional[dict],
+                         seeds: Optional[dict] = None) -> List[HealthcareTask]:
     """
     Sensitivity knobs applied to a built task list (in place):
       ecg_payload_bits   D_i of every ECG task (D15: 10 KB sensitivity)
@@ -54,7 +86,7 @@ def apply_task_overrides(tasks: List[HealthcareTask],
     if not overrides:
         return tasks
     unknown = (set(overrides) - set(TASK_OVERRIDE_KEYS) - set(WORKLOAD_KEYS)
-               - set(SCHEDULER_KEYS))
+               - set(SCHEDULER_KEYS) - set(CI_NOISE_KEYS))
     if unknown:
         raise KeyError(f'unknown task overrides: {sorted(unknown)}')
     for t in tasks:
@@ -62,6 +94,11 @@ def apply_task_overrides(tasks: List[HealthcareTask],
             t.data_size_bits = int(overrides['ecg_payload_bits'])
         if overrides.get('result_size_bits') is not None:
             t.result_size_bits = int(overrides['result_size_bits'])
+    if overrides.get('ci_noise_sigma') or overrides.get('ci_misclass_prob'):
+        if seeds is None:
+            raise ValueError('CI noise needs the replicate seeds')
+        perturb_ci(tasks, overrides.get('ci_noise_sigma'),
+                   overrides.get('ci_misclass_prob'), seeds['ci_noise'])
     return tasks
 
 
@@ -80,6 +117,10 @@ def overrides_tag(overrides: Optional[dict]) -> str:
         parts.append(f"rho{overrides['load_rho']:g}")
     if overrides.get('warm_start_tasks'):
         parts.append(f"warm{int(overrides['warm_start_tasks'])}")
+    if overrides.get('ci_noise_sigma'):
+        parts.append(f"cin{overrides['ci_noise_sigma']:g}")
+    if overrides.get('ci_misclass_prob'):
+        parts.append(f"cim{overrides['ci_misclass_prob']:g}")
     return '_'.join(parts)
 
 
@@ -116,7 +157,7 @@ def build_synthetic_replicate(
         arrival_process=ov.get('arrival_process', 'poisson'),
         arrival_rate=rate, arrival_seed=seeds['arrival'])
     tasks = [to_healthcare_task(t, topo) for t in sim_tasks]
-    apply_task_overrides(tasks, task_overrides)
+    apply_task_overrides(tasks, task_overrides, seeds)
     return seeds, topo, tasks
 
 

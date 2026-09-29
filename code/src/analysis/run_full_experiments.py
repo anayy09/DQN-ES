@@ -342,6 +342,10 @@ def main():
     parser.add_argument('--load-rho', type=float, default=None,
                         help='Target offered edge utilisation (E7), sets the '
                              'absolute arrival rate')
+    parser.add_argument('--ci-noise', type=float, default=None,
+                        help='Gaussian sigma on the scheduler-visible CI (E14)')
+    parser.add_argument('--ci-misclass', type=float, default=None,
+                        help='CI tier misclassification probability (E14)')
     parser.add_argument('--warm-start', type=int, default=None,
                         help='Pre-train DQN arms on N_pre tasks (E12)')
     parser.add_argument('--result-size-bits', type=int, default=None,
@@ -359,7 +363,9 @@ def main():
                  'arrival_process': (args.arrival if args.arrival != 'poisson'
                                      else None),
                  'load_rho': args.load_rho,
-                 'warm_start_tasks': args.warm_start}
+                 'warm_start_tasks': args.warm_start,
+                 'ci_noise_sigma': args.ci_noise,
+                 'ci_misclass_prob': args.ci_misclass}
     overrides = {k: v for k, v in overrides.items() if v is not None} or None
     results_dir = (Path(args.output) if args.output
                    else project_root / 'results')

@@ -214,14 +214,17 @@ class OffloadingEnvironment:
             'cost':                cost,
             'sla_violated':        sla_violated,
             'sla_deadline_ms':     task.max_delay_s * 1000.0,
-            'ci_score':            task.ci_score,
+            # True Phi (label); ci_visible is what the scheduler saw (E14)
+            'ci_score':            task.ci_score if task.ci_true is None else task.ci_true,
+            'ci_visible':          task.ci_score,
             'attack_prob':         task.attack_probability,
             'battery_remaining_j': self._battery_j.get(task.device_id, -1.0),
             'timestamp':           task.timestamp,
             'scheduling_overhead_ms': scheduling_overhead_ms,  # Fix C: timing
             # Raw-log fields (plan E5, E8, E11; simulation/episode_log.py)
             'task_type':           task.task_type,
-            'ci_tier':             ci_tier(task.ci_score),
+            'ci_tier':             ci_tier(task.ci_score if task.ci_true is None
+                                           else task.ci_true),
             'payload_bits':        task.data_size_bits,
             'result_bits':         0 if is_local else result_size_bits(task),
             'completion_time_s':   task.timestamp + latency_s,

@@ -30,7 +30,8 @@ RAW_LOG_COLUMNS = [
     'algorithm', 'run_id', 'n_tasks',
     # task (what the adversary observes + labels)
     'task_id', 'device_id', 'device_decision_index', 'timestamp',
-    'task_type', 'ci_score', 'ci_tier', 'payload_bits', 'result_bits',
+    'task_type', 'ci_score', 'ci_tier', 'ci_visible', 'payload_bits',
+    'result_bits',
     'sla_deadline_ms', 'attack_prob',
     # decision
     'assigned_node', 'node_type', 'explored', 'epsilon', 'q_argmax_node',

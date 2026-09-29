@@ -123,7 +123,7 @@ def _run_cell(payload: tuple) -> tuple:
 
     topo = build_topology(run_id, 0)
     tasks = _events_to_tasks(_WORKER_EVENTS, topo, local_rng)
-    apply_task_overrides(tasks, overrides)
+    apply_task_overrides(tasks, overrides, seeds)
 
     registry = get_registry('all')
     res, _ = run_scheduler(registry[alg_name], topo, tasks, seeds)

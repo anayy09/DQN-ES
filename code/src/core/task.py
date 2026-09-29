@@ -37,6 +37,7 @@ class HealthcareTask:
     source: str = 'synthetic'         # 'synthetic' | 'physionet' | 'mimic'
     task_type: str = 'unknown'        # key into TASK_PROFILES (e.g. 'ecg_analysis')
     result_size_bits: Optional[int] = None  # result returned to the wearable; None -> config.RESULT_SIZE_BITS
+    ci_true: Optional[float] = None   # true Phi when ci_score is a perturbed, scheduler-visible value (E14)
     assigned_node: Optional[int] = None
     actual_latency_s: Optional[float] = None
     actual_energy_j: Optional[float] = None
