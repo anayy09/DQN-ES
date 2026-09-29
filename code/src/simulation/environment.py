@@ -32,14 +32,13 @@ from src.core.cost_function import (
 from src.core.network import NetworkTopology
 from src.core.task import HealthcareTask
 from src.algorithms.base_scheduler import BaseScheduler
+from src.config import ATTACK_BURST_INTENSITY, ATTACK_BURST_PROB
 
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 BATTERY_CAPACITY_J = 0.5 * 3600.0   # 500 mAh @ 3.7 V â‰ˆ 1850 J per wearable
-ATTACK_BURST_PROB = 0.05             # 5 % chance of attack burst per task arrival
-ATTACK_BURST_INTENSITY = 0.8        # attack probability during a burst
 
 
 class OffloadingEnvironment:
@@ -60,8 +59,15 @@ class OffloadingEnvironment:
         scheduler: BaseScheduler,
         n_tasks: int = 1000,
         seed: int = 42,
+        attack_burst_prob: Optional[float] = None,
+        attack_burst_intensity: Optional[float] = None,
     ):
         self.topology = topology
+        self.attack_burst_prob = (ATTACK_BURST_PROB if attack_burst_prob is None
+                                  else attack_burst_prob)
+        self.attack_burst_intensity = (ATTACK_BURST_INTENSITY
+                                       if attack_burst_intensity is None
+                                       else attack_burst_intensity)
         self.scheduler = scheduler
         self.n_tasks = n_tasks
         self.seed = seed
@@ -123,8 +129,8 @@ class OffloadingEnvironment:
           sla_violated, battery_remaining_j, timestamp
         """
         # --- Inject attack probability (adversarial scenario) ---
-        if self._rng.random() < ATTACK_BURST_PROB:
-            task.attack_probability = ATTACK_BURST_INTENSITY
+        if self._rng.random() < self.attack_burst_prob:
+            task.attack_probability = self.attack_burst_intensity
         else:
             task.attack_probability = max(task.attack_probability, 0.0)
 

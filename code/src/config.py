@@ -125,6 +125,19 @@ STEP_CI_THRESHOLD:   float = 0.5
 
 
 # ---------------------------------------------------------------------------
+# Adversarial attack bursts (environment.py)
+# ---------------------------------------------------------------------------
+# On every task arrival the environment draws an attack burst with
+# probability ATTACK_BURST_PROB; during a burst the task's p_atk is set to
+# ATTACK_BURST_INTENSITY (otherwise it keeps its generated value, 0 for
+# synthetic and MIT-BIH tasks).  p_atk enters only the DQN state vector.
+# Applies to every scheduler and every run; set ATTACK_BURST_PROB = 0 to
+# disable.
+ATTACK_BURST_PROB:      float = 0.05
+ATTACK_BURST_INTENSITY: float = 0.8
+
+
+# ---------------------------------------------------------------------------
 # Privacy guard (Fix 8)
 # ---------------------------------------------------------------------------
 # A flow is classified as a "traffic-analysis attack" when its empirical
