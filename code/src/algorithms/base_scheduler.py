@@ -13,13 +13,10 @@ from typing import Dict, Optional, Tuple
 
 from src.core.cost_function import (
     compute_cost,
-    compute_local_energy,
-    compute_local_latency,
-    compute_offload_energy,
-    compute_offload_latency,
     compute_privacy_risk,
     estimate_bounds,
 )
+from src.core.offload_model import offload_outcome
 from src.core.network import NetworkTopology
 from src.core.task import HealthcareTask
 
@@ -101,9 +98,9 @@ class BaseScheduler(ABC):
           - Energy   = Îº Â· C_i Â· fÂ²
           - Privacy  = 0  (data never leaves the device)
 
-        For remote nodes:
-          - Latency  = t_tx + t_prop + t_queue + t_proc
-          - Energy   = P_tx Â· t_tx + P_idle Â· (L - t_tx)
+        For remote nodes (core/offload_model.py):
+          - Latency  = t_tx + t_prop + t_queue + t_proc + t_dl
+          - Energy   = P_tx Â· t_tx + P_rx Â· t_rx + P_idle Â· (L - t_tx - t_rx)
           - Privacy  = Ï Â· (1 - H / H_max)
 
         Parameters
@@ -117,47 +114,10 @@ class BaseScheduler(ABC):
         -------
         (cost, latency_s, energy_j, privacy_risk)
         """
-        topo = self.topology
-        src_node = topo.get_node(task.device_id)
-        dst_node = topo.get_node(node_id)
-
-        is_local = (node_id == task.device_id)
-
-        # ---- Latency ----
-        if is_local:
-            latency_s = compute_local_latency(
-                task.cpu_cycles,
-                src_node.hardware.cpu_freq_hz,
-            )
-        else:
-            uplink_rate = topo.get_uplink_rate(task.device_id, node_id)
-            prop_delay = topo.get_propagation_delay(task.device_id, node_id)
-            queue_delay = topo.get_queue_delay(node_id)
-            latency_s = compute_offload_latency(
-                task.data_size_bits,
-                task.cpu_cycles,
-                uplink_rate,
-                prop_delay,
-                queue_delay,
-                dst_node.hardware.cpu_freq_hz,
-            )
-
-        # ---- Energy ----
-        if is_local:
-            energy_j = compute_local_energy(
-                task.cpu_cycles,
-                src_node.hardware.cpu_freq_hz,
-                src_node.hardware.kappa,
-            )
-        else:
-            uplink_rate = topo.get_uplink_rate(task.device_id, node_id)
-            energy_j = compute_offload_energy(
-                task.data_size_bits,
-                uplink_rate,
-                latency_s,
-                src_node.hardware.tx_power_w,
-                src_node.hardware.idle_power_w,
-            )
+        outcome = offload_outcome(self.topology, task, node_id)
+        latency_s = outcome.latency_s
+        energy_j = outcome.energy_j
+        is_local = outcome.is_local
 
         # ---- Privacy risk ----
         if is_local:
@@ -206,46 +166,15 @@ class BaseScheduler(ABC):
         latencies: list[float] = []
         energies: list[float] = []
 
-        src_node = self.topology.get_node(task.device_id)
-
-        # Include local execution
-        lat_local = compute_local_latency(
-            task.cpu_cycles, src_node.hardware.cpu_freq_hz
-        )
-        eng_local = compute_local_energy(
-            task.cpu_cycles,
-            src_node.hardware.cpu_freq_hz,
-            src_node.hardware.kappa,
-        )
-        latencies.append(lat_local)
-        energies.append(eng_local)
-
-        for nid in self._candidate_nodes:
-            dst_node = self.topology.get_node(nid)
+        # Local execution plus every remote candidate
+        for nid in [task.device_id] + list(self._candidate_nodes):
             try:
-                uplink_rate = self.topology.get_uplink_rate(task.device_id, nid)
-                prop_delay = self.topology.get_propagation_delay(task.device_id, nid)
-                queue_delay = self.topology.get_queue_delay(nid)
-                lat = compute_offload_latency(
-                    task.data_size_bits,
-                    task.cpu_cycles,
-                    uplink_rate,
-                    prop_delay,
-                    queue_delay,
-                    dst_node.hardware.cpu_freq_hz,
-                )
-                eng = compute_offload_energy(
-                    task.data_size_bits,
-                    uplink_rate,
-                    lat,
-                    src_node.hardware.tx_power_w,
-                    src_node.hardware.idle_power_w,
-                )
-                if math.isfinite(lat) and math.isfinite(eng):
-                    latencies.append(lat)
-                    energies.append(eng)
+                out = offload_outcome(self.topology, task, nid)
             except Exception:
-                pass
+                continue
+            if math.isfinite(out.latency_s) and math.isfinite(out.energy_j):
+                latencies.append(out.latency_s)
+                energies.append(out.energy_j)
 
         return estimate_bounds(latencies, energies)
 

@@ -10,7 +10,8 @@ where weights are CI-adaptive (Criticality Index Φ ∈ [0,1]):
   w_P(Φ) = (1-Φ)^γ_P                              — privacy relaxed in emergencies
 
 Energy model: CMOS dynamic power  E = κ · C · f²
-Latency model: L = t_tx + t_prop + t_queue + t_proc
+Latency model: L = t_tx + t_prop + t_queue + t_proc + t_dl
+  (t_dl = return propagation + result download; see core/offload_model.py)
 Privacy risk: R_P = ρ · (1 - H(u_i) / H_max)
 """
 
@@ -214,13 +215,16 @@ def compute_offload_energy(
     total_latency_s: float,
     tx_power_w: float,
     idle_power_w: float,
+    rx_time_s: float = 0.0,
+    rx_power_w: float = 0.0,
 ) -> float:
     """
     Wearable energy during offloading:
-      E_off = P_tx · t_tx + P_idle · (L_off - t_tx)
+      E_off = P_tx · t_tx + P_rx · t_rx + P_idle · (L_off - t_tx - t_rx)
 
-    The wearable transmits data at full TX power, then stays in idle/
-    listening mode until the result is received.
+    The wearable transmits the payload at TX power, waits in idle/listening
+    mode, and receives the result at RX power (t_rx = result download time;
+    0 reproduces the round-1 model without result return).
 
     Parameters
     ----------
@@ -229,6 +233,8 @@ def compute_offload_energy(
     total_latency_s : float — L_off (end-to-end)
     tx_power_w      : float — P_tx (wearable transmission power)
     idle_power_w    : float — P_idle (wearable during waiting)
+    rx_time_s       : float — t_rx, time spent receiving the result
+    rx_power_w      : float — P_rx (wearable receive power)
 
     Returns
     -------
@@ -238,8 +244,9 @@ def compute_offload_energy(
         return float('inf')
 
     t_tx = min(data_size_bits / uplink_rate_bps, total_latency_s)
-    t_idle = max(0.0, total_latency_s - t_tx)
-    return tx_power_w * t_tx + idle_power_w * t_idle
+    t_rx = min(max(0.0, rx_time_s), max(0.0, total_latency_s - t_tx))
+    t_idle = max(0.0, total_latency_s - t_tx - t_rx)
+    return tx_power_w * t_tx + rx_power_w * t_rx + idle_power_w * t_idle
 
 
 # ---------------------------------------------------------------------------

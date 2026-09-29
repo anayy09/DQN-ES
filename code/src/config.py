@@ -125,6 +125,30 @@ STEP_CI_THRESHOLD:   float = 0.5
 
 
 # ---------------------------------------------------------------------------
+# Result return / downlink  (plan E9, D7; core/offload_model.py)
+# ---------------------------------------------------------------------------
+# Every offloaded task returns a result (class label, confidence, timestamp)
+# to the wearable.  Latency adds the return propagation delay plus
+# RESULT_SIZE_BITS / R_dl; the wearable pays RX power for the download.
+RESULT_SIZE_BITS:              int        = 8_000          # 1 KB (SI) result
+RESULT_SIZE_SENSITIVITY_BITS:  list[int]  = [8_000, 32_000, 128_000, 512_000]  # 1, 4, 16, 64 KB
+
+# Downlink rate uses the uplink channel model on the wearable's registered
+# link (reciprocal channel, wearable's 20 MHz channel) with the serving side
+# transmitting at DOWNLINK_TX_POWER_W.  Assumed value: 20 dBm, a typical
+# 2.4 GHz Wi-Fi access-point transmit power (EU EIRP limit); not measured.
+DOWNLINK_TX_POWER_W:           float      = 0.100
+
+# Wearable Wi-Fi receive power.  ESP32-S3 Series Datasheet (Espressif),
+# "Current Consumption" / RF-mode table: Rx 802.11n HT20, typical 88 mA at
+# VDD = 3.3 V, 25 C  ->  0.088 A x 3.3 V = 0.290 W.  (Check the datasheet
+# version/table number when citing; see the provenance table S1.)
+WEARABLE_RX_CURRENT_A:         float      = 0.088
+WEARABLE_SUPPLY_V:             float      = 3.3
+WEARABLE_RX_POWER_W:           float      = WEARABLE_RX_CURRENT_A * WEARABLE_SUPPLY_V
+
+
+# ---------------------------------------------------------------------------
 # Adversarial attack bursts (environment.py)
 # ---------------------------------------------------------------------------
 # On every task arrival the environment draws an attack burst with

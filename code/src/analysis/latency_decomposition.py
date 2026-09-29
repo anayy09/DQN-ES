@@ -14,7 +14,7 @@ Outputs
 -------
 results/latency_decomposition.csv
   columns: algorithm, N, mean_tx_ms, mean_queue_ms, mean_compute_ms,
-           mean_prop_ms, mean_total_ms
+           mean_prop_ms, mean_downlink_ms, mean_total_ms
 """
 
 from __future__ import annotations
@@ -66,6 +66,7 @@ def _run_cell(payload: tuple) -> tuple:
         'mean_queue_ms':   mean(r['latency_queue_ms']    for r in results),
         'mean_compute_ms': mean(r['latency_compute_ms']  for r in results),
         'mean_prop_ms':    mean(r['latency_prop_ms']     for r in results),
+        'mean_downlink_ms': mean(r['latency_downlink_ms'] for r in results),
         'mean_total_ms':   mean(r['latency_ms']          for r in results),
     }
     return alg_name, run_id, metrics
@@ -103,7 +104,7 @@ def run_decomposition(
             print(f'  {alg} run={rid}  wall={time.time()-t0:.1f}s', flush=True)
 
     comp_keys = ['mean_tx_ms', 'mean_queue_ms', 'mean_compute_ms',
-                 'mean_prop_ms', 'mean_total_ms']
+                 'mean_prop_ms', 'mean_downlink_ms', 'mean_total_ms']
     summary = {}
     csv_rows = []
     for alg in DECOMP_ALGORITHMS:

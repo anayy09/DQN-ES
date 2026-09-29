@@ -139,13 +139,23 @@ class NetworkTopology:
             snr = 1000.0
             return B * math.log2(1.0 + snr)
 
-        # Noise power: ÏƒÂ² = kÂ·TÂ·B  (thermal noise floor) in watts
-        # Override with provided noise_dbm if it gives a higher noise floor
+        return self._shannon_rate(p_tx, B, link, channel_noise_dbm)
+
+    @staticmethod
+    def _shannon_rate(
+        p_tx: float,
+        B: float,
+        link: 'NetworkLink',
+        channel_noise_dbm: float = -100.0,
+    ) -> float:
+        """R = B log2(1 + P h / sigma^2) over `link` (path-loss, I = 0)."""
+        # Noise power: sigma^2 = k T B (thermal floor) or the given noise
+        # floor, whichever is higher, in watts
         noise_thermal_w = BOLTZMANN_K * TEMPERATURE_K * B
         noise_dbm_w = 10.0 ** ((channel_noise_dbm - 30.0) / 10.0)
         sigma_sq = max(noise_thermal_w, noise_dbm_w)
 
-        # Path-loss: h = (d_0/d)^alpha  â€” free-space + log-distance model
+        # Path-loss: h = (d_0/d)^alpha  (free-space + log-distance model)
         d_m = max(link.distance_m, REFERENCE_DISTANCE_M)   # avoid d=0
         alpha = link.path_loss_exponent
         h = REFERENCE_GAIN_H0 * (REFERENCE_DISTANCE_M / d_m) ** alpha
@@ -155,6 +165,25 @@ class NetworkTopology:
 
         rate_bps = B * math.log2(1.0 + snr)
         return max(rate_bps, 1e3)   # at least 1 kbps to prevent division errors
+
+    def get_downlink_rate(
+        self,
+        device_id: int,
+        node_id: int,
+        tx_power_w: float,
+        channel_noise_dbm: float = -100.0,
+    ) -> float:
+        """
+        Result-return rate node -> wearable, from the same channel model as
+        the uplink: the wearable's registered link to `node_id` is used as a
+        reciprocal channel (same distance and path-loss exponent), on the
+        wearable's channel bandwidth, with the serving side transmitting at
+        `tx_power_w`.
+        """
+        wearable = self.get_node(device_id)
+        link = self.get_link(device_id, node_id)
+        return self._shannon_rate(tx_power_w, wearable.hardware.bandwidth_hz,
+                                  link, channel_noise_dbm)
 
     # ------------------------------------------------------------------
     # M/M/1 queue delay

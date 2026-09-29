@@ -21,14 +21,8 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from src.core.cost_function import (
-    compute_local_energy,
-    compute_local_latency,
-    compute_offload_energy,
-    compute_offload_latency,
-    compute_privacy_risk,
-    estimate_bounds,
-)
+from src.core.cost_function import compute_privacy_risk
+from src.core.offload_model import offload_outcome
 from src.core.network import NetworkTopology
 from src.core.task import HealthcareTask
 from src.algorithms.base_scheduler import BaseScheduler
@@ -148,54 +142,14 @@ class OffloadingEnvironment:
         src_node = self.topology.get_node(task.device_id)
         is_local = (node_id == task.device_id)
 
-        # --- Compute latency and component breakdown (Fix F) ---
-        if is_local:
-            latency_s = compute_local_latency(
-                task.cpu_cycles, src_node.hardware.cpu_freq_hz
-            )
-            # Component breakdown for local execution
-            lat_tx_s    = 0.0
-            lat_prop_s  = 0.0
-            lat_queue_s = 0.0
-            lat_comp_s  = latency_s
-        else:
-            uplink_rate = self.topology.get_uplink_rate(task.device_id, node_id)
-            prop_delay = self.topology.get_propagation_delay(task.device_id, node_id)
-            queue_delay = self.topology.get_queue_delay(node_id)
-            latency_s = compute_offload_latency(
-                task.data_size_bits,
-                task.cpu_cycles,
-                uplink_rate,
-                prop_delay,
-                queue_delay,
-                dst_node.hardware.cpu_freq_hz,
-            )
-            # Component breakdown: t_tx + t_prop + t_queue + t_proc
-            lat_tx_s    = task.data_size_bits / max(uplink_rate, 1.0)
-            lat_prop_s  = prop_delay
-            lat_queue_s = queue_delay
-            lat_comp_s  = task.cpu_cycles / max(dst_node.hardware.cpu_freq_hz, 1.0)
-
-        # Cap latency at a sensible maximum (prevents infinity propagation)
-        latency_s = min(latency_s, 999.0)
-
-        # --- Compute energy ---
-        if is_local:
-            energy_j = compute_local_energy(
-                task.cpu_cycles,
-                src_node.hardware.cpu_freq_hz,
-                src_node.hardware.kappa,
-            )
-        else:
-            uplink_rate = self.topology.get_uplink_rate(task.device_id, node_id)
-            energy_j = compute_offload_energy(
-                task.data_size_bits,
-                uplink_rate,
-                latency_s,
-                src_node.hardware.tx_power_w,
-                src_node.hardware.idle_power_w,
-            )
-        energy_j = max(0.0, energy_j)
+        # --- Latency / energy with component breakdown (core/offload_model) ---
+        # Latency is capped at 999 s (overloaded queue) before the idle-energy
+        # term is computed, as in round 1.
+        out = offload_outcome(self.topology, task, node_id, latency_cap_s=999.0)
+        latency_s = out.latency_s
+        energy_j = max(0.0, out.energy_j)
+        lat_tx_s, lat_prop_s = out.t_tx, out.t_prop
+        lat_queue_s, lat_comp_s, lat_dl_s = out.t_queue, out.t_proc, out.t_dl
 
         # --- Privacy risk ---
         if is_local:
@@ -249,7 +203,12 @@ class OffloadingEnvironment:
             'latency_prop_ms':     lat_prop_s  * 1000.0,  # Fix F: component
             'latency_queue_ms':    lat_queue_s * 1000.0,  # Fix F: component
             'latency_compute_ms':  lat_comp_s  * 1000.0,  # Fix F: component
+            'latency_downlink_ms': lat_dl_s    * 1000.0,  # E9: return prop + result download
             'energy_mj':           energy_j * 1000.0,
+            'energy_tx_mj':        out.e_tx * 1000.0,
+            'energy_idle_mj':      out.e_idle * 1000.0,
+            'energy_rx_mj':        out.e_rx * 1000.0,
+            'energy_compute_mj':   out.e_compute * 1000.0,
             'privacy_risk':        privacy_risk,
             'cost':                cost,
             'sla_violated':        sla_violated,
