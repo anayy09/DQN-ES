@@ -41,6 +41,7 @@ class ESOnlyScheduler(BaseScheduler):
         self._idx_to_node: List[int] = self._candidate_nodes
         self._n_nodes = len(self._idx_to_node)
         self.dispatch_times_ms: List[float] = []
+        self.last_decision_info: dict = {}
 
     def select_node(self, task: HealthcareTask) -> int:
         if self._n_nodes == 1:
@@ -48,8 +49,8 @@ class ESOnlyScheduler(BaseScheduler):
             self.record_decision(task.device_id, nid)
             return nid
 
+        t0 = time.perf_counter()
         lat_bounds, eng_bounds = self.estimate_feasible_bounds(task)
-
         t_start = time.perf_counter()
         
         best_node = -1
@@ -61,7 +62,14 @@ class ESOnlyScheduler(BaseScheduler):
                 best_cost = cost
                 best_node = node_id
                 
-        self.dispatch_times_ms.append((time.perf_counter() - t_start) * 1000.0)
+        t_end = time.perf_counter()
+        self.dispatch_times_ms.append((t_end - t_start) * 1000.0)
+        self.last_decision_info = {
+            't_bounds_ms': (t_start - t0) * 1000.0,
+            't_forward_ms': 0.0,
+            't_enum_ms': (t_end - t_start) * 1000.0,
+            't_update_ms': 0.0,
+        }
 
         self.record_decision(task.device_id, best_node)
         return best_node

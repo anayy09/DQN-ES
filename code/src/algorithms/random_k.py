@@ -48,6 +48,7 @@ class RandomKScheduler(BaseScheduler):
         return True
 
     def select_node(self, task: HealthcareTask) -> int:
+        tb = time.perf_counter()
         lat_bounds, eng_bounds = self.estimate_feasible_bounds(task)
         t0 = time.perf_counter()
         explored = self._use_random_subset()
@@ -63,11 +64,16 @@ class RandomKScheduler(BaseScheduler):
             cost, _, _, _ = self.evaluate_node(task, node_id, lat_bounds, eng_bounds)
             if cost < best_cost:
                 best_cost, best_node = cost, node_id
-        self.dispatch_times_ms.append((time.perf_counter() - t0) * 1000.0)
+        t_end = time.perf_counter()
+        self.dispatch_times_ms.append((t_end - t0) * 1000.0)
 
         self.last_decision_info = {
             'explored': bool(explored),
             'candidates': [self._idx_to_node[i] for i in cand],
+            't_bounds_ms': (t0 - tb) * 1000.0,
+            't_forward_ms': 0.0,
+            't_enum_ms': (t_end - t0) * 1000.0,
+            't_update_ms': 0.0,
         }
         self.record_decision(task.device_id, best_node)
         return best_node

@@ -121,6 +121,14 @@ RANDOM_K:            int         = DQN_TOP_K                          # E2 Rando
 Q_MIX_SWEEP:         list[float] = [0.0, 0.1, 0.25, 0.5, 0.75, 1.0]   # E2 q-mixed
 LAMBDA_P_SWEEP:      list[float] = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0]  # E3 ES-only privacy scale
 
+# E4 scalability: fog-node counts M (action set = M + 2 network
+# destinations; DQN state dim = 2 + 4 (M + 2)).  Decision-time split is
+# measured serially (no concurrent workers) on SCALING_TIMING_RUNS replicates.
+SCALING_FOG_COUNTS:  list[int]   = [3, 8, 16, 32]
+SCALING_TIMING_RUNS: int         = 5
+ROBUSTNESS_ARMS:     list[str]   = ['DQN-ES', 'ES-only', 'Random-K[K=3]',
+                                    'q-mixed[q=0.5]', 'Static-Tier']   # E4/E7/E12/E14 arms
+
 
 # ---------------------------------------------------------------------------
 # CI-adaptive weight functions  (Fix 6: ablation defines four conditions)

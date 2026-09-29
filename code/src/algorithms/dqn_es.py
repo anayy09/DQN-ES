@@ -263,6 +263,7 @@ class DQNESScheduler(BaseScheduler):
         self.last_decision_info: dict = {}
         self._last_q: Optional[np.ndarray] = None
         self._last_explored: bool = False
+        self._last_forward_s: float = 0.0
 
     def get_state(self, task: HealthcareTask) -> np.ndarray:
         """
@@ -327,7 +328,10 @@ class DQNESScheduler(BaseScheduler):
             self.record_decision(task.device_id, node_id)
             return node_id
 
+        _t = time.perf_counter
+        t0 = _t()
         lat_bounds, eng_bounds = self.estimate_feasible_bounds(task)
+        t_bounds = _t() - t0
 
         # Expanded state representation
         state = self.get_state(task)
@@ -335,20 +339,24 @@ class DQNESScheduler(BaseScheduler):
         # Complete the previous decision's transition: its successor state
         # s_{t+1} is the state observed at this (the next) scheduling
         # decision.  The episode is one continuing stream, so done = False.
+        t0 = _t()
         if self._pending is not None:
             p_state, p_action, p_reward = self._pending
             self._replay.push(p_state, p_action, p_reward, state, False)
             self._pending = None
             if len(self._replay) >= self.batch_size:
                 self.update_policy(self.batch_size)
+        t_update = _t() - t0
 
         eps_used = self.epsilon
-        t_dispatch_start = time.perf_counter()
+        t_dispatch_start = _t()
         top_k_indices = self._dqn_select_top_k(state)
+        t_enum0 = _t()
 
         # Exhaustive search within Top-K subspace
         best_node_id = self._exhaustive_search(task, top_k_indices, lat_bounds, eng_bounds)
-        self.dispatch_times_ms.append((time.perf_counter() - t_dispatch_start) * 1000.0)
+        t_end = _t()
+        self.dispatch_times_ms.append((t_end - t_dispatch_start) * 1000.0)
 
         # Diagnostics (outside the timed region): Q ordering of the executed
         # action.  On exploratory steps Q is evaluated here only for logging;
@@ -363,6 +371,14 @@ class DQNESScheduler(BaseScheduler):
             'q_argmax_node': int(self._idx_to_node[int(order[0])]),
             'exec_q_rank': int(np.where(order == exec_idx)[0][0]),
             'candidates': [self._idx_to_node[i] for i in top_k_indices],
+            # Decision-time split (plan E4).  forward = Q forward pass on the
+            # decision path (0 on exploratory steps); enum = inner
+            # enumeration over the K candidates; update = replay push +
+            # minibatch update, which is off the decision path.
+            't_bounds_ms': t_bounds * 1000.0,
+            't_forward_ms': self._last_forward_s * 1000.0,
+            't_enum_ms': (t_end - t_enum0) * 1000.0,
+            't_update_ms': t_update * 1000.0,
         }
 
         _, latency_s, energy_j, privacy_risk = self.evaluate_node(task, best_node_id, lat_bounds, eng_bounds)
@@ -390,10 +406,13 @@ class DQNESScheduler(BaseScheduler):
             # Exploration: a uniformly random K-subset of the destinations
             indices = self._rng.choice(self._n_nodes, size=min(K, self._n_nodes), replace=False).tolist()
             self._last_q, self._last_explored = None, True
+            self._last_forward_s = 0.0
         else:
+            t0 = time.perf_counter()
             q_values = self._online_net.forward(state)
             top_k_idx = np.argsort(q_values)[::-1][:K]
             indices = top_k_idx.tolist()
+            self._last_forward_s = time.perf_counter() - t0
             self._last_q, self._last_explored = q_values, False
 
         return indices

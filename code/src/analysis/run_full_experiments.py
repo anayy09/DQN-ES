@@ -77,10 +77,11 @@ except ImportError:
 # Helpers
 # ---------------------------------------------------------------------------
 def _run_single(alg_name, sched_cls, n_tasks, run_id, raw_dir=None,
-                task_overrides=None):
+                task_overrides=None, n_fog_nodes=N_FOG_NODES):
     """One Monte Carlo replicate for one algorithm (topology per replicate)."""
     seeds, topo, tasks = build_synthetic_replicate(
-        run_id, n_tasks, 'mixed', task_overrides=task_overrides)
+        run_id, n_tasks, 'mixed', n_fog_nodes=n_fog_nodes,
+        task_overrides=task_overrides)
     results, sched = run_scheduler(sched_cls, topo, tasks, seeds)
     if raw_dir is not None and results:
         write_raw_log(results, raw_log_path(raw_dir, n_tasks, alg_name, run_id),
@@ -110,10 +111,10 @@ def _run_single(alg_name, sched_cls, n_tasks, run_id, raw_dir=None,
     return metrics, (list(epsilon_history) if epsilon_history else None)
 
 def _run_single_wrapper(args):
-    alg, sched_cls, n_tasks, run_id, raw_dir, overrides = args
+    alg, sched_cls, n_tasks, run_id, raw_dir, overrides, n_fog = args
     try:
         m, eps_hist = _run_single(alg, sched_cls, n_tasks, run_id, raw_dir,
-                                  overrides)
+                                  overrides, n_fog)
         m['run_id'] = run_id
         return run_id, m, eps_hist, None
     except Exception as exc:
@@ -131,6 +132,7 @@ def run_full(
     algorithms: list[str] | None = None,
     raw_logs: bool = True,
     task_overrides: dict | None = None,
+    n_fog_nodes: int = N_FOG_NODES,
 ) -> Dict:
     """
     registry_name 'main' writes mc_full_*.json and table3_n{N}.csv;
@@ -178,7 +180,7 @@ def run_full(
             sched_cls = registry[alg]
             for run_id in range(n_runs):
                 args_list.append((alg, sched_cls, n_tasks, run_id, raw_dir,
-                                  task_overrides))
+                                  task_overrides, n_fog_nodes))
                 
         with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
             if _TQDM:
@@ -325,6 +327,8 @@ def main():
     parser.add_argument('--workers', type=int, default=None)
     parser.add_argument('--no-raw', action='store_true',
                         help='Do not write per-run raw logs under results/raw/')
+    parser.add_argument('--n-fog', type=int, default=N_FOG_NODES,
+                        help='Fog-node count M (E4; action set = M + 2)')
     parser.add_argument('--ecg-payload-bits', type=int, default=None,
                         help='Override ECG D_i (sensitivity; config '
                              'ECG_PAYLOAD_SENSITIVITY_BITS = 80000 = 10 KB)')
@@ -346,10 +350,13 @@ def main():
     if overrides and not args.output:
         # Never let a sensitivity run overwrite the main-model files
         results_dir = results_dir / 'sensitivity' / overrides_tag(overrides)
+    if args.n_fog != N_FOG_NODES and not args.output:
+        results_dir = results_dir / 'scaling' / f'M{args.n_fog}'
 
     run_full(scales, n_runs, results_dir, workers=args.workers,
              registry_name=args.registry, algorithms=args.algorithms,
-             raw_logs=not args.no_raw, task_overrides=overrides)
+             raw_logs=not args.no_raw, task_overrides=overrides,
+             n_fog_nodes=args.n_fog)
 
 
 if __name__ == '__main__':

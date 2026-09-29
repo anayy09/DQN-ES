@@ -40,7 +40,8 @@ RAW_LOG_COLUMNS = [
     'latency_queue_ms', 'latency_compute_ms', 'latency_downlink_ms',
     'energy_mj', 'energy_tx_mj', 'energy_idle_mj', 'energy_rx_mj',
     'energy_compute_mj', 'privacy_risk', 'sla_violated',
-    'scheduling_overhead_ms',
+    'scheduling_overhead_ms', 't_bounds_ms', 't_forward_ms', 't_enum_ms',
+    't_update_ms',
 ]
 
 

@@ -230,6 +230,10 @@ class OffloadingEnvironment:
             'epsilon':             info.get('epsilon'),
             'q_argmax_node':       info.get('q_argmax_node'),
             'exec_q_rank':         info.get('exec_q_rank'),
+            't_bounds_ms':         info.get('t_bounds_ms'),
+            't_forward_ms':        info.get('t_forward_ms'),
+            't_enum_ms':           info.get('t_enum_ms'),
+            't_update_ms':         info.get('t_update_ms'),
         }
 
     # ------------------------------------------------------------------
