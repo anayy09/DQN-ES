@@ -135,6 +135,15 @@ GAMMA_P:             float = 2.0
 # step-weight ablation condition.
 STEP_CI_THRESHOLD:   float = 0.5
 
+# CI tier labels for logs and the acuity adversary (plan E5).  Matches the
+# synthetic generator's tiers: low [0, 0.3), medium [0.3, 0.7), high [0.7, 1].
+CI_TIER_BOUNDS:      tuple = (0.3, 0.7)
+
+
+def ci_tier(ci: float) -> str:
+    lo, hi = CI_TIER_BOUNDS
+    return 'low' if ci < lo else ('medium' if ci < hi else 'high')
+
 
 # ---------------------------------------------------------------------------
 # Result return / downlink  (plan E9, D7; core/offload_model.py)

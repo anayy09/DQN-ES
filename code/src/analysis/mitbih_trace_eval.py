@@ -51,6 +51,7 @@ from src.config import (
 from src.core.task import HealthcareTask, TASK_PROFILES
 from src.data_ingestion.parse_mitbih import load_mitbih_events
 from src.simulation.environment import OffloadingEnvironment
+from src.simulation.episode_log import add_steady_state, raw_log_path, write_raw_log
 from src.simulation.replicate import build_topology, run_scheduler
 
 
@@ -103,7 +104,7 @@ def _run_cell(payload: tuple) -> tuple:
     Returns (alg_name, run_id, metrics_dict_or_None, elapsed_seconds).
     """
     import random as _r
-    alg_name, run_id = payload
+    alg_name, run_id, raw_dir = payload
     t0 = time.time()
 
     seeds = replicate_seeds(run_id, 0)
@@ -118,6 +119,9 @@ def _run_cell(payload: tuple) -> tuple:
 
     if not res:
         return alg_name, run_id, None, time.time() - t0
+    if raw_dir is not None:
+        write_raw_log(res, raw_log_path(raw_dir, len(tasks), alg_name, run_id),
+                      alg_name, run_id, len(tasks))
 
     metrics = {
         'avg_latency_ms':    mean(r['latency_ms']    for r in res),
@@ -126,6 +130,7 @@ def _run_cell(payload: tuple) -> tuple:
         'sla_violation_pct': 100.0 * sum(r['sla_violated']
                                          for r in res) / len(res),
     }
+    add_steady_state(metrics, res)
     return alg_name, run_id, metrics, time.time() - t0
 
 
@@ -140,6 +145,7 @@ def run_mitbih_trace(
     smoke: bool = False,
     max_tasks: int | None = None,
     algorithms: list | None = None,
+    raw_logs: bool = True,
 ) -> dict:
     """
     Run the MIT-BIH trace evaluation in parallel.
@@ -180,7 +186,8 @@ def run_mitbih_trace(
         events = events[:max_tasks]
         print(f'[MIT-BIH] Truncated to {len(events)} tasks (max_tasks).')
 
-    payloads = [(alg, rid) for alg in alg_names for rid in range(n_runs)]
+    raw_dir = (results_dir / 'raw' / 'mitbih') if raw_logs else None
+    payloads = [(alg, rid, raw_dir) for alg in alg_names for rid in range(n_runs)]
     n_jobs = len(payloads)
 
     if workers is None:
@@ -234,6 +241,15 @@ def run_mitbih_trace(
                       'samples': vs.tolist()}
             row[f'{k}_mean'] = float(vs.mean())
             row[f'{k}_std']  = float(vs.std())
+        # Steady-state R_P (F7): only runs long enough to pass warm-up
+        ss = np.array([r['avg_privacy_risk_ss'] for r in runs
+                       if 'avg_privacy_risk_ss' in r], dtype=float)
+        if len(ss):
+            agg['avg_privacy_risk_ss'] = {'mean': float(ss.mean()),
+                                          'std': float(ss.std()),
+                                          'samples': ss.tolist()}
+            row['avg_privacy_risk_ss_mean'] = float(ss.mean())
+            row['avg_privacy_risk_ss_std'] = float(ss.std())
         summary[alg] = agg
         csv_rows.append(row)
 
@@ -241,7 +257,8 @@ def run_mitbih_trace(
     csv_path = results_dir / f'table5_mitbih_trace{suffix}.csv'
     json_path = results_dir / f'mitbih_trace_raw{suffix}.json'
     with open(csv_path, 'w', newline='', encoding='utf-8') as fh:
-        wr = csv.DictWriter(fh, fieldnames=list(csv_rows[0].keys()))
+        fields = list(dict.fromkeys(k for r in csv_rows for k in r))
+        wr = csv.DictWriter(fh, fieldnames=fields, restval='')
         wr.writeheader()
         wr.writerows(csv_rows)
     with open(json_path, 'w', encoding='utf-8') as fh:

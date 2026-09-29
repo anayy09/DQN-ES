@@ -257,6 +257,10 @@ class DQNESScheduler(BaseScheduler):
 
         self.epsilon_history: List[float] = []
         self.dispatch_times_ms: List[float] = []
+        # Per-decision diagnostics read by the environment logger (plan E11)
+        self.last_decision_info: dict = {}
+        self._last_q: Optional[np.ndarray] = None
+        self._last_explored: bool = False
 
     def get_state(self, task: HealthcareTask) -> np.ndarray:
         """
@@ -336,12 +340,28 @@ class DQNESScheduler(BaseScheduler):
             if len(self._replay) >= self.batch_size:
                 self.update_policy(self.batch_size)
 
+        eps_used = self.epsilon
         t_dispatch_start = time.perf_counter()
         top_k_indices = self._dqn_select_top_k(state)
 
         # Exhaustive search within Top-K subspace
         best_node_id = self._exhaustive_search(task, top_k_indices, lat_bounds, eng_bounds)
         self.dispatch_times_ms.append((time.perf_counter() - t_dispatch_start) * 1000.0)
+
+        # Diagnostics (outside the timed region): Q ordering of the executed
+        # action.  On exploratory steps Q is evaluated here only for logging;
+        # it does not touch any RNG, so decisions are unchanged.
+        q_values = (self._last_q if self._last_q is not None
+                    else self._online_net.forward(state))
+        order = np.argsort(q_values)[::-1]
+        exec_idx = self._idx_to_node.index(best_node_id)
+        self.last_decision_info = {
+            'explored': bool(self._last_explored),
+            'epsilon': float(eps_used),
+            'q_argmax_node': int(self._idx_to_node[int(order[0])]),
+            'exec_q_rank': int(np.where(order == exec_idx)[0][0]),
+            'candidates': [self._idx_to_node[i] for i in top_k_indices],
+        }
 
         _, latency_s, energy_j, privacy_risk = self.evaluate_node(task, best_node_id, lat_bounds, eng_bounds)
 
@@ -365,11 +385,14 @@ class DQNESScheduler(BaseScheduler):
         K = self.n_candidate_nodes
 
         if self._rng.random() < self.epsilon:
+            # Exploration: a uniformly random K-subset of the destinations
             indices = self._rng.choice(self._n_nodes, size=min(K, self._n_nodes), replace=False).tolist()
+            self._last_q, self._last_explored = None, True
         else:
             q_values = self._online_net.forward(state)
             top_k_idx = np.argsort(q_values)[::-1][:K]
             indices = top_k_idx.tolist()
+            self._last_q, self._last_explored = q_values, False
 
         return indices
 

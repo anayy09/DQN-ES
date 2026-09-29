@@ -55,6 +55,11 @@ from src.config import (
     get_registry,
 )
 from src.core.task import HealthcareTask
+from src.simulation.episode_log import (
+    add_steady_state,
+    raw_log_path,
+    write_raw_log,
+)
 from src.simulation.replicate import (
     build_synthetic_replicate,
     run_scheduler,
@@ -70,10 +75,13 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def _run_single(alg_name, sched_cls, n_tasks, run_id):
+def _run_single(alg_name, sched_cls, n_tasks, run_id, raw_dir=None):
     """One Monte Carlo replicate for one algorithm (topology per replicate)."""
     seeds, topo, tasks = build_synthetic_replicate(run_id, n_tasks, 'mixed')
     results, sched = run_scheduler(sched_cls, topo, tasks, seeds)
+    if raw_dir is not None and results:
+        write_raw_log(results, raw_log_path(raw_dir, n_tasks, alg_name, run_id),
+                      alg_name, run_id, n_tasks)
 
     if not results:
         return {
@@ -93,14 +101,15 @@ def _run_single(alg_name, sched_cls, n_tasks, run_id):
                               / len(results),
         'throughput':        n_tasks / span,
     }
+    add_steady_state(metrics, results)
 
     epsilon_history = getattr(sched, 'epsilon_history', None)
     return metrics, (list(epsilon_history) if epsilon_history else None)
 
 def _run_single_wrapper(args):
-    alg, sched_cls, n_tasks, run_id = args
+    alg, sched_cls, n_tasks, run_id, raw_dir = args
     try:
-        m, eps_hist = _run_single(alg, sched_cls, n_tasks, run_id)
+        m, eps_hist = _run_single(alg, sched_cls, n_tasks, run_id, raw_dir)
         return run_id, m, eps_hist, None
     except Exception as exc:
         return run_id, None, None, str(exc)
@@ -115,12 +124,14 @@ def run_full(
     workers: int = None,
     registry_name: str = 'main',
     algorithms: list[str] | None = None,
+    raw_logs: bool = True,
 ) -> Dict:
     """
     registry_name 'main' writes mc_full_*.json and table3_n{N}.csv;
     'experiments' / 'all' write mc_exp_* / mc_all_* and table_exp_n{N}.csv
     so the main-comparison files are never overwritten by decomposition arms.
     `algorithms` restricts the run to a subset of the registry.
+    raw_logs writes one gzip CSV per run under results_dir/raw/<prefix>/.
     """
     results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -136,7 +147,9 @@ def run_full(
     table_name = ('table3' if registry_name == 'main'
                   else f'table_{registry_name[:3]}')
     metric_keys = ['avg_latency_ms', 'avg_energy_mj',
-                   'avg_privacy_risk', 'sla_violation_pct', 'throughput']
+                   'avg_privacy_risk', 'sla_violation_pct', 'throughput',
+                   'avg_privacy_risk_ss']
+    raw_dir = (results_dir / 'raw' / prefix) if raw_logs else None
 
     mc_raw:     Dict[int, Dict[str, list]] = defaultdict(lambda: defaultdict(list))
     mc_summary: Dict[int, Dict[str, dict]] = defaultdict(dict)
@@ -156,7 +169,7 @@ def run_full(
         for alg in alg_names:
             sched_cls = registry[alg]
             for run_id in range(n_runs):
-                args_list.append((alg, sched_cls, n_tasks, run_id))
+                args_list.append((alg, sched_cls, n_tasks, run_id, raw_dir))
                 
         with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
             if _TQDM:
@@ -297,6 +310,8 @@ def main():
     parser.add_argument('--algorithms', nargs='+', default=None,
                         help='Restrict to these registry names')
     parser.add_argument('--workers', type=int, default=None)
+    parser.add_argument('--no-raw', action='store_true',
+                        help='Do not write per-run raw logs under results/raw/')
     args = parser.parse_args()
 
     n_runs = 5 if args.quick else args.n_runs
@@ -308,7 +323,8 @@ def main():
                    else project_root / 'results')
 
     run_full(scales, n_runs, results_dir, workers=args.workers,
-             registry_name=args.registry, algorithms=args.algorithms)
+             registry_name=args.registry, algorithms=args.algorithms,
+             raw_logs=not args.no_raw)
 
 
 if __name__ == '__main__':

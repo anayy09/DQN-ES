@@ -26,7 +26,8 @@ from src.core.offload_model import offload_outcome
 from src.core.network import NetworkTopology
 from src.core.task import HealthcareTask
 from src.algorithms.base_scheduler import BaseScheduler
-from src.config import ATTACK_BURST_INTENSITY, ATTACK_BURST_PROB
+from src.config import ATTACK_BURST_INTENSITY, ATTACK_BURST_PROB, ci_tier
+from src.core.offload_model import result_size_bits
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +86,7 @@ class OffloadingEnvironment:
         self._queue_task_counts: Dict[int, int] = {}
         self._time_window_s: float = 1.0      # sliding window for Î» estimation
         self._recent_arrivals: Dict[int, List[float]] = {}   # node_id â†’ arrival times
+        self._device_decisions: Dict[int, int] = {}   # decisions made per device
 
         self.reset()
 
@@ -96,6 +98,7 @@ class OffloadingEnvironment:
         """Reinitialise all mutable state."""
         for wid in self._wearable_ids:
             self._battery_j[wid] = BATTERY_CAPACITY_J
+        self._device_decisions = {}
 
         for nid in self.topology.nodes:
             self._queue_task_counts[nid] = 0
@@ -132,10 +135,15 @@ class OffloadingEnvironment:
         self._update_arrival_rates(task.timestamp)
 
         # --- Schedule (Fix C: record wall-clock time for select_node) ---
+        if hasattr(self.scheduler, 'last_decision_info'):
+            self.scheduler.last_decision_info = {}
         _t0 = time.perf_counter()
         node_id = self.scheduler.select_node(task)
         scheduling_overhead_ms = (time.perf_counter() - _t0) * 1000.0
         task.assigned_node = node_id
+        info = getattr(self.scheduler, 'last_decision_info', None) or {}
+        dev_idx = self._device_decisions.get(task.device_id, 0)
+        self._device_decisions[task.device_id] = dev_idx + 1
 
         # --- Retrieve node info ---
         dst_node = self.topology.get_node(node_id)
@@ -218,6 +226,17 @@ class OffloadingEnvironment:
             'battery_remaining_j': self._battery_j.get(task.device_id, -1.0),
             'timestamp':           task.timestamp,
             'scheduling_overhead_ms': scheduling_overhead_ms,  # Fix C: timing
+            # Raw-log fields (plan E5, E8, E11; simulation/episode_log.py)
+            'task_type':           task.task_type,
+            'ci_tier':             ci_tier(task.ci_score),
+            'payload_bits':        task.data_size_bits,
+            'result_bits':         0 if is_local else result_size_bits(task),
+            'completion_time_s':   task.timestamp + latency_s,
+            'device_decision_index': dev_idx,   # 0-based, per device
+            'explored':            info.get('explored'),
+            'epsilon':             info.get('epsilon'),
+            'q_argmax_node':       info.get('q_argmax_node'),
+            'exec_q_rank':         info.get('exec_q_rank'),
         }
 
     # ------------------------------------------------------------------
