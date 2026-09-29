@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Vendored from the author's `ml-eval-statistics` toolkit (scripts/eval_stats.py),
+# included unchanged below this header. Distributed with this repository under
+# the repository's MIT License (see LICENSE). Used here for the replicate
+# bootstrap primitives (multinomial_weights, percentile_ci) and the Holm procedure.
 """Statistics for comparing your own models: clustered bootstrap intervals,
 paired comparisons, calibration, and selective prediction.
 

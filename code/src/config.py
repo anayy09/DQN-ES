@@ -74,7 +74,7 @@ PER_RUN_SEED_FN = replicate_seed
 
 
 # ---------------------------------------------------------------------------
-# Monte Carlo protocol  (Fix 1, Fix 5)
+# Monte Carlo protocol
 # ---------------------------------------------------------------------------
 N_RUNS:          int        = 30
 TASK_SCALES:     list[int]  = [100, 500, 1000, 2000, 5000]
@@ -84,7 +84,7 @@ N_FOG_NODES:     int        = 3
 
 
 # ---------------------------------------------------------------------------
-# DQN-ES hyperparameters  (Fix 7: explicit epsilon decay schedule)
+# DQN-ES hyperparameters (explicit epsilon decay schedule)
 # ---------------------------------------------------------------------------
 # Epsilon-greedy exploration schedule:
 #   epsilon(t+1) = max(epsilon_min, epsilon(t) * epsilon_decay)
@@ -109,14 +109,9 @@ DQN_BATCH_SIZE:      int   = 32
 DQN_REPLAY_CAPACITY: int   = 10_000
 DQN_TARGET_SYNC:     int   = 50              # steps between target-net updates
 
-# BBO inner search
-BBO_POP:             int   = 20
-BBO_MAX_ITER:        int   = 30
-BBO_DELTA0:          float = 1.0
 # DQN top-K candidate set.  K ranges over 1..(M+2) network destinations
 # (edge, M fog nodes, cloud); local execution is not an action.
 DQN_TOP_K:           int   = 3
-BBO_TOP_K:           int   = DQN_TOP_K       # legacy name
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +132,7 @@ ROBUSTNESS_ARMS:     list[str]   = ['DQN-ES', 'ES-only', 'Random-K[K=3]',
 
 
 # ---------------------------------------------------------------------------
-# CI-adaptive weight functions  (Fix 6: ablation defines four conditions)
+# CI-adaptive weight functions (the weight ablation compares four schemes)
 # ---------------------------------------------------------------------------
 # Default ("proposed") non-linear weights are defined analytically in
 # core/cost_function.py with constants ALPHA_E, BETA_L, GAMMA_P.
@@ -237,7 +232,7 @@ ATTACK_BURST_INTENSITY: float = 0.8
 
 
 # ---------------------------------------------------------------------------
-# Privacy guard (Fix 8)
+# Privacy guard (entropy threshold)
 # ---------------------------------------------------------------------------
 # A flow is classified as a "traffic-analysis attack" when its empirical
 # offload-entropy ratio H/H_max falls below this threshold for the source
@@ -246,7 +241,7 @@ PRIVACY_ENTROPY_THRESHOLD: float = 0.85
 
 
 # ---------------------------------------------------------------------------
-# Real-trace evaluation (Fix 10)
+# MIT-BIH trace-driven evaluation
 # ---------------------------------------------------------------------------
 MITBIH_N_RUNS:       int   = 30
 MITBIH_PAYLOAD_BITS: int   = None  # set below to ECG_PAYLOAD_BITS (single source, D15)
@@ -307,11 +302,11 @@ STAT_TOST_MARGINS:   dict  = {
 
 
 # ---------------------------------------------------------------------------
-# Algorithm registry  (Fix 2: includes ablations; Fix A: adds PSO+DQN)
+# Algorithm registries
 # ---------------------------------------------------------------------------
 def get_full_algorithm_registry():
     """
-    Return the complete algorithm registry including PSO+DQN (Fix A),
+    Return the main 9-algorithm registry, including PSO+DQN,
     ES-only and DQN-only ablations.
     Imported lazily to avoid circular imports at module load.
     """

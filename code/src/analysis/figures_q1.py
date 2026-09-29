@@ -702,68 +702,6 @@ def fig_mitbih_trace(trace_path: Path, figures_dir: Path,
     _save(fig, figures_dir, 'fig10_mitbih_trace')
 
 # ===========================================================================
-# Figure 11 — M/G/1 queueing sensitivity
-# ===========================================================================
-def fig_mg1_sensitivity(mg1_path: Path, figures_dir: Path) -> None:
-    """
-    Two-panel figure for the M/G/1 sensitivity analysis.
-
-    Panel (a): mean latency (ms) vs coefficient of variation cv for each
-    algorithm — shows latency scales as (1+cv²)/2 while relative ordering
-    is preserved.
-
-    Panel (b): privacy risk vs cv for same algorithms — shows the metric is
-    completely invariant to the queuing model, confirming the privacy
-    advantage is intrinsic to DQN-ES routing rather than the M/M/1 delay.
-    """
-    if not mg1_path.exists():
-        print(f'[FIG] Skipping M/G/1: {mg1_path} not found')
-        return
-    with open(mg1_path, 'r', encoding='utf-8') as fh:
-        raw = json.load(fh)
-
-    cv_vals = sorted(raw.keys(), key=float)
-    cv_floats = [float(c) for c in cv_vals]
-
-    # Use DEFAULT_ORDER; skip Local-Only / Cloud-Only (not in M/G/1 run)
-    algs = [a for a in DEFAULT_ORDER
-            if a not in ('Local-Only', 'Cloud-Only')
-            and a in raw[cv_vals[0]]]
-
-    fig, axes = plt.subplots(1, 2, figsize=(7.16, 2.6))
-
-    for ax, key, ylabel in (
-        (axes[0], 'avg_latency_ms',   'Average latency (ms)'),
-        (axes[1], 'avg_privacy_risk', 'Privacy risk'),
-    ):
-        for alg in algs:
-            ys, es = [], []
-            for cv in cv_vals:
-                d = raw[cv].get(alg, {}).get(key, {})
-                ys.append(d.get('mean', np.nan))
-                es.append(d.get('std',  0.0))
-            y = np.array(ys); e = np.array(es); x = np.array(cv_floats)
-            s = _style_for(alg)
-            ax.plot(x, y, color=COLORS[alg], marker=MARKERS[alg],
-                    label=alg, **s)
-            ax.fill_between(x, y - e, y + e, color=COLORS[alg],
-                            alpha=0.12, linewidth=0, zorder=s['zorder'] - 5)
-        ax.set_xticks(cv_floats)
-        ax.xaxis.set_major_formatter(mticker.FormatStrFormatter('%.1f'))
-        ax.set_xlabel('Coefficient of variation $c_v$')
-        ax.set_ylabel(ylabel)
-
-    # Single shared legend below both panels
-    handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc='lower center',
-               bbox_to_anchor=(0.5, 0.02),
-               ncol=min(len(algs), 4),
-               columnspacing=0.8, handletextpad=0.4, handlelength=1.4)
-    fig.tight_layout(rect=[0, 0.10, 1, 1])
-    _save(fig, figures_dir, 'fig11_mg1_sensitivity')
-
-
-# ===========================================================================
 # Driver
 # ===========================================================================
 def main():
@@ -798,7 +736,6 @@ def main():
     fig_privacy_guard_roc(res / 'privacy_guard_metrics.json', fig)
     fig_shap_summary(res / 'shap_feature_importance.json', fig)
     fig_mitbih_trace(res / 'mitbih_trace_raw.json', fig)
-    fig_mg1_sensitivity(res / 'mg1_sensitivity.json', fig)
     print('[FIG] Done.')
 
 
