@@ -14,7 +14,11 @@ Architecture:
   3. Hybrid flow:
      - DQN narrows search to K ≪ N candidate nodes
      - ES performs fine-grained combinatorial search within that subspace
-     - DQN policy is updated online via experience replay (DQN training)
+     - DQN policy is updated online via experience replay (DQN training).
+       A transition (s_t, a_t, r_t, s_{t+1}) is stored when decision t+1
+       arrives, so s_{t+1} is the state at the next scheduling decision.
+       a_t is the executed action (argmin F within the top-K set); Q-learning
+       is off-policy, so any behaviour policy with coverage is valid.
 
 References:
   Mnih, V. et al. (2015). Human-level control through deep reinforcement
@@ -32,6 +36,19 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from src.algorithms.base_scheduler import BaseScheduler
+from src.config import (
+    BBO_TOP_K,
+    DQN_BATCH_SIZE,
+    DQN_GAMMA,
+    DQN_HIDDEN_DIM,
+    DQN_LR,
+    DQN_REPLAY_CAPACITY,
+    DQN_TARGET_SYNC,
+    EPSILON_DECAY,
+    EPSILON_INIT,
+    EPSILON_MIN,
+    GLOBAL_SEED,
+)
 from src.core.cost_function import (
     compute_cost,
     compute_normalized_weights,
@@ -177,16 +194,16 @@ class DQNESScheduler(BaseScheduler):
     def __init__(
         self,
         topology,
-        n_candidate_nodes: int = 3,
-        epsilon: float = 1.0,
-        epsilon_decay: float = 0.995,
-        epsilon_min: float = 0.05,
-        gamma: float = 0.95,
-        lr: float = 0.001,
-        replay_capacity: int = 10_000,
-        batch_size: int = 32,
-        target_sync_freq: int = 50,
-        seed: int = 42,
+        n_candidate_nodes: int = BBO_TOP_K,
+        epsilon: float = EPSILON_INIT,
+        epsilon_decay: float = EPSILON_DECAY,
+        epsilon_min: float = EPSILON_MIN,
+        gamma: float = DQN_GAMMA,
+        lr: float = DQN_LR,
+        replay_capacity: int = DQN_REPLAY_CAPACITY,
+        batch_size: int = DQN_BATCH_SIZE,
+        target_sync_freq: int = DQN_TARGET_SYNC,
+        seed: int = GLOBAL_SEED,
         offload_history: Optional[dict] = None,
     ):
         super().__init__(topology, offload_history)
@@ -209,18 +226,20 @@ class DQNESScheduler(BaseScheduler):
         self._online_net = DQNNetwork(
             state_dim=self.state_dim,
             action_dim=self._n_nodes,
-            hidden_dim=64,
+            hidden_dim=DQN_HIDDEN_DIM,
             seed=seed,
         )
         self._target_net = DQNNetwork(
             state_dim=self.state_dim,
             action_dim=self._n_nodes,
-            hidden_dim=64,
+            hidden_dim=DQN_HIDDEN_DIM,
             seed=seed,
         )
         self._target_net.copy_weights_from(self._online_net)
 
         self._replay = ReplayBuffer(capacity=replay_capacity, seed=seed)
+        # (state, action_idx, reward) of the last decision, awaiting s_{t+1}
+        self._pending: Optional[Tuple[np.ndarray, int, float]] = None
 
         self._step_count = 0
         self._total_loss = 0.0
@@ -301,6 +320,16 @@ class DQNESScheduler(BaseScheduler):
         # Expanded state representation
         state = self.get_state(task)
 
+        # Complete the previous decision's transition: its successor state
+        # s_{t+1} is the state observed at this (the next) scheduling
+        # decision.  The episode is one continuing stream, so done = False.
+        if self._pending is not None:
+            p_state, p_action, p_reward = self._pending
+            self._replay.push(p_state, p_action, p_reward, state, False)
+            self._pending = None
+            if len(self._replay) >= self.batch_size:
+                self.update_policy(self.batch_size)
+
         t_dispatch_start = time.perf_counter()
         top_k_indices = self._dqn_select_top_k(state)
 
@@ -312,13 +341,8 @@ class DQNESScheduler(BaseScheduler):
 
         action_idx = self._idx_to_node.index(best_node_id)
         reward = self.compute_reward(task, best_node_id, latency_s, energy_j, privacy_risk)
-        next_state = self.get_state(task)
-        done = False
-
-        self._replay.push(state, action_idx, reward, next_state, done)
-
-        if len(self._replay) >= self.batch_size:
-            self.update_policy(self.batch_size)
+        # Stored when the next decision arrives (see above).
+        self._pending = (state, action_idx, reward)
 
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
         self.epsilon_history.append(self.epsilon)
