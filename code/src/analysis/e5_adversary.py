@@ -8,18 +8,19 @@ destinations it offloads to, when tasks leave the device, how large they
 are, and how long each takes to complete.  It wants to know whether the
 patient is in a high-acuity period.
 
-Windows and labels.  For every device, tasks are ordered by timestamp and
-split into non-overlapping windows of E5_ADVERSARY['window'] (50) tasks; the
-remainder is dropped.  Binary label: the window's majority CI tier is 'high'
-(true Phi, not the scheduler-visible one).  3-tier label: the majority tier.
+Samples and labels (ruling D20).  One sample per task.  Binary label: the
+task's true CI tier is 'high'; 3-tier label: the tier.  (The synthetic
+generator draws tiers i.i.d. per task, so window-majority labels do not
+occur; the task is the unit at which acuity varies.)
 
 Features (cumulative ablations).
-  dest          destination histogram (local, each network destination) and
-                normalised transition counts between consecutive destinations
-  dest+timing   + inter-arrival mean / std / 10-50-90 % quantiles and
-                response-time (latency) mean / std / 50-90 % quantiles
+  dest          the task's destination (one-hot) and the device's histogram
+                over its preceding E5_ADVERSARY['context'] (50) destinations
+                (plus how many preceding decisions exist, up to 50)
+  dest+timing   + inter-arrival time since the device's previous task and the
+                task's response time (latency)
   dest+timing+size
-                + payload-size mean / std / median / max
+                + payload size
 
 Adversary.  Adaptive: a separate classifier is trained on each scheduler's
 own traces, so it knows the policy it attacks.  HistGradientBoosting
@@ -28,7 +29,7 @@ own traces, so it knows the policy it attacks.  HistGradientBoosting
 Evaluation.
   split         train on replicates E5_ADVERSARY['train_runs'], test on
                 E5_ADVERSARY['test_runs'] (replicate-disjoint); AUC on the
-                pooled test windows and per test replicate (the unit of the
+                pooled test tasks and per test replicate (the unit of the
                 D17(b) 'privacy_inference' family)
   cv            5-fold cross-validation grouped by replicate
   macro3        one-vs-rest macro AUC for the 3-tier label (primary config)
@@ -42,7 +43,7 @@ Outputs (<out>/):
                 the primary configuration -> statistical_tests family
                 'privacy_inference'
   mutual_information.csv
-  e5_windows_meta.json          window counts and label balance
+  e5_meta.json                  sample counts and label balance
 
 Usage (from code/):
   python -m src.analysis.e5_adversary --raw-dirs ../results/raw/mc_full/n1000 \\
@@ -121,29 +122,11 @@ def _q(a, qs):
     return list(np.quantile(a, qs)) if len(a) else [0.0] * len(qs)
 
 
-def window_features(win: List[dict], dest_vocab: List[str]) -> Dict[str, list]:
+def build_samples(runs: Dict[int, List[dict]], context: int,
+                  dest_vocab: List[str]):
+    """One sample per task: run_id, labels, and features by feature set."""
     k = len(dest_vocab)
     idx = {d: i for i, d in enumerate(dest_vocab)}
-    seq = [idx[_dest(r)] for r in win]
-    hist = np.bincount(seq, minlength=k) / len(seq)
-    trans = np.zeros((k, k))
-    for a, b in zip(seq[:-1], seq[1:]):
-        trans[a, b] += 1
-    trans = (trans / max(len(seq) - 1, 1)).ravel()
-    ts = np.array([float(r['timestamp']) for r in win])
-    ia = np.diff(ts) if len(ts) > 1 else np.array([0.0])
-    lat = np.array([float(r['latency_ms']) for r in win])
-    size = np.array([float(r['payload_bits']) for r in win])
-    timing = [ia.mean(), ia.std(), *_q(ia, [0.1, 0.5, 0.9]),
-              lat.mean(), lat.std(), *_q(lat, [0.5, 0.9])]
-    sz = [size.mean(), size.std(), float(np.median(size)), size.max()]
-    dest = list(hist) + list(trans)
-    return {'dest': dest, 'dest+timing': dest + timing,
-            'dest+timing+size': dest + timing + sz}
-
-
-def build_windows(runs: Dict[int, List[dict]], window: int, dest_vocab: List[str]):
-    """Rows of (run_id, device, binary label, 3-tier label, features by set)."""
     out = []
     for run_id, rows in runs.items():
         by_dev = defaultdict(list)
@@ -151,14 +134,27 @@ def build_windows(runs: Dict[int, List[dict]], window: int, dest_vocab: List[str
             by_dev[r['device_id']].append(r)
         for dev, rs in by_dev.items():
             rs.sort(key=lambda r: float(r['timestamp']))
-            for s in range(0, len(rs) - window + 1, window):
-                win = rs[s:s + window]
-                tiers = [r['ci_tier'] for r in win]
-                counts = [tiers.count(t) for t in TIERS]
-                maj = TIERS[int(np.argmax(counts))]
-                out.append({'run_id': run_id, 'device': dev,
-                            'y': int(maj == 'high'), 'y3': TIERS.index(maj),
-                            'x': window_features(win, dest_vocab)})
+            hist = []                                # preceding destinations
+            prev_t = None
+            for r in rs:
+                d = idx[_dest(r)]
+                one_hot = [0.0] * k
+                one_hot[d] = 1.0
+                h = np.bincount(hist[-context:], minlength=k).astype(float)
+                n_prev = min(len(hist), context)
+                h = list(h / n_prev) if n_prev else [0.0] * k
+                t = float(r['timestamp'])
+                ia = (t - prev_t) if prev_t is not None else float('nan')
+                dest = one_hot + h + [n_prev / context]
+                timing = dest + [ia, float(r['latency_ms'])]
+                size = timing + [float(r['payload_bits'])]
+                tier = r['ci_tier']
+                out.append({'run_id': run_id, 'y': int(tier == 'high'),
+                            'y3': TIERS.index(tier),
+                            'x': {'dest': dest, 'dest+timing': timing,
+                                  'dest+timing+size': size}})
+                hist.append(d)
+                prev_t = t
     return out
 
 
@@ -178,10 +174,12 @@ def _make(clf: str, seed: int):
     if clf == 'hgb':
         from sklearn.ensemble import HistGradientBoostingClassifier
         return HistGradientBoostingClassifier(random_state=seed)
+    from sklearn.impute import SimpleImputer
     from sklearn.linear_model import LogisticRegression
     from sklearn.pipeline import make_pipeline
     from sklearn.preprocessing import StandardScaler
-    return make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000))
+    return make_pipeline(SimpleImputer(strategy='median'), StandardScaler(),
+                         LogisticRegression(max_iter=2000))
 
 
 def _auc(y, p) -> float:
@@ -198,7 +196,7 @@ def evaluate(wins: List[dict], feat: str, clf: str, seed: int) -> dict:
     g = np.array([w['run_id'] for w in wins])
     tr = np.isin(g, cfg['train_runs'])
     te = np.isin(g, cfg['test_runs'])
-    res = {'n_windows': int(len(wins)), 'n_train': int(tr.sum()),
+    res = {'n_samples': int(len(wins)), 'n_train': int(tr.sum()),
            'n_test': int(te.sum()), 'pos_rate': float(y.mean()) if len(y) else float('nan')}
     if tr.sum() == 0 or te.sum() == 0 or len(set(y[tr].tolist())) < 2:
         res.update(pooled_test_auc=float('nan'), per_run_auc={})
@@ -281,12 +279,13 @@ def run(raw_dirs: List[Path], out_dir: Path, algorithms: Optional[List[str]] = N
     if not logs:
         raise SystemExit('[E5] no raw logs found')
     vocab = dest_vocabulary(logs)
-    print(f'[E5] schedulers={sorted(logs)} destinations={vocab} window={cfg["window"]}')
+    print(f'[E5] schedulers={sorted(logs)} destinations={vocab} '
+          f'unit=task context={cfg["context"]}')
 
     rows, primary, meta = [], {}, {}
     for alg in sorted(logs):
-        wins = build_windows(logs[alg], cfg['window'], vocab)
-        meta[alg] = {'n_windows': len(wins), 'n_runs': len(logs[alg]),
+        wins = build_samples(logs[alg], cfg['context'], vocab)
+        meta[alg] = {'n_samples': len(wins), 'n_runs': len(logs[alg]),
                      'pos_rate': float(np.mean([w['y'] for w in wins])) if wins else None}
         for feat in feature_sets:
             for clf in classifiers:
@@ -302,7 +301,7 @@ def run(raw_dirs: List[Path], out_dir: Path, algorithms: Optional[List[str]] = N
                                                       'run_ids': ids}}
                 print(f"  {alg:<16} {feat:<17} {clf:<6} pooled AUC "
                       f"{r['pooled_test_auc']:.3f}  cv {r.get('cv_auc_mean', float('nan')):.3f}"
-                      f"  windows={r['n_windows']}")
+                      f"  tasks={r['n_samples']}")
 
     fields = sorted({k for r in rows for k in r}, key=lambda k: (k not in (
         'scheduler', 'features', 'classifier'), k))
@@ -312,8 +311,9 @@ def run(raw_dirs: List[Path], out_dir: Path, algorithms: Optional[List[str]] = N
         wr.writeheader()
         wr.writerows(rows)
     _long_path(out_dir / 'adversary_auc_by_replicate.json').write_text(
-        json.dumps({'primary': {k: cfg[k] for k in ('primary_features', 'primary_classifier',
-                                                    'window', 'train_runs', 'test_runs')},
+        json.dumps({'primary': {k: cfg[k] for k in ('unit', 'primary_features',
+                                                    'primary_classifier', 'context',
+                                                    'train_runs', 'test_runs')},
                     'cells': primary}, indent=1), encoding='utf-8')
 
     mi_rows = []
@@ -329,7 +329,7 @@ def run(raw_dirs: List[Path], out_dir: Path, algorithms: Optional[List[str]] = N
         wr = csv.DictWriter(fh, fieldnames=list(mi_rows[0]))
         wr.writeheader()
         wr.writerows(mi_rows)
-    _long_path(out_dir / 'e5_windows_meta.json').write_text(
+    _long_path(out_dir / 'e5_meta.json').write_text(
         json.dumps({'vocab': vocab, 'schedulers': meta,
                     'raw_dirs': [str(d) for d in raw_dirs]}, indent=1), encoding='utf-8')
     print(f'[E5] wrote {out_dir}')

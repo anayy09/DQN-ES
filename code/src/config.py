@@ -297,14 +297,18 @@ STAT_FAMILIES: dict = {
     },
 }
 
-# E5 adversary (analysis/e5_adversary.py).  Primary configuration for the
-# 'privacy_inference' family, declared before the freeze: HistGradientBoosting
-# on all observables (destinations + timing + size), non-overlapping
-# 50-task windows per device, label = majority CI tier is 'high', train on
-# replicates 0-19 and test on 20-29 (replicate-disjoint); the unit is the
-# per-test-replicate AUC.
+# E5 adversary (analysis/e5_adversary.py), task-level (ruling D20: the
+# generator draws CI tiers i.i.d. per task, so a window-majority label never
+# occurs).  Primary configuration for the 'privacy_inference' family,
+# declared before the freeze: one sample per task, label = the task's true
+# CI tier is 'high'; features = the task's destination, the device's
+# histogram over its preceding `context` destinations, inter-arrival since
+# the device's previous task, response time and payload size;
+# HistGradientBoosting; train on replicates 0-19, test on 20-29
+# (replicate-disjoint); the unit is the per-test-replicate AUC.
 E5_ADVERSARY: dict = {
-    'window':             50,
+    'unit':               'task',
+    'context':            50,
     'train_runs':         list(range(0, 20)),
     'test_runs':          list(range(20, 30)),
     'primary_features':   'dest+timing+size',
