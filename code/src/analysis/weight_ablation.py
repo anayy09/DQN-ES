@@ -47,9 +47,7 @@ from src.config import (
 )
 from src.core.cost_function import get_weight_mode, set_weight_mode
 from src.core.task import HealthcareTask
-from src.data_ingestion.event_generator import generate_synthetic_tasks
-from src.simulation.environment import OffloadingEnvironment
-from src.simulation.topology import build_healthcare_topology
+from src.simulation.replicate import build_synthetic_replicate, run_scheduler
 
 try:
     from tqdm import tqdm
@@ -61,31 +59,15 @@ except ImportError:
 WEIGHT_MODES = ['flat', 'step', 'linear', 'nonlinear']
 
 
-def _to_healthcare(t, topo):
-    wids = [nid for nid, n in topo.nodes.items() if n.node_type == 'wearable']
-    dev = wids[t.device_id % len(wids)]
-    return HealthcareTask(
-        task_id=t.task_id, device_id=dev, timestamp=t.timestamp,
-        data_size_bits=t.data_size_bits, cpu_cycles=t.cpu_cycles,
-        max_delay_s=t.max_delay_s, privacy_sensitivity=t.privacy_sensitivity,
-        ci_score=t.ci_score, attack_probability=t.attack_probability,
-        source=t.source,
-    )
-
-
 def _run_once(payload):
-    n_tasks, run_id, topo, ci_distribution, mode = payload
+    n_tasks, run_id, ci_distribution, mode = payload
     set_weight_mode(mode)
-
-    import random as _r
-    seed = GLOBAL_SEED + run_id * 1000 + n_tasks
-    _r.seed(seed)
-    np.random.seed(seed)
-    raws = generate_synthetic_tasks(n_tasks, ci_distribution, seed=seed)
-    tasks = [_to_healthcare(t, topo) for t in raws]
-    sched = DQNESScheduler(topo, seed=seed)
-    env = OffloadingEnvironment(topo, sched, n_tasks=n_tasks, seed=seed)
-    res = env.run(tasks)
+    try:
+        seeds, topo, tasks = build_synthetic_replicate(run_id, n_tasks,
+                                                       ci_distribution)
+        res, _ = run_scheduler(DQNESScheduler, topo, tasks, seeds)
+    finally:
+        set_weight_mode('nonlinear')
     if not res:
         return None
     return {
@@ -146,15 +128,12 @@ def run_ablation(
         'mixed' for standard workload; 'all_high' for Fix B ICU scenario.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    topo = build_healthcare_topology(
-        n_wearables=N_WEARABLES, n_fog_nodes=N_FOG_NODES, seed=GLOBAL_SEED,
-    )
     label = 'HIGHCI' if ci_distribution == 'all_high' else 'MIXED'
     print(f'[WEIGHT-AB] ci_distribution={ci_distribution} ({label})')
 
     raw: dict = defaultdict(list)
     import concurrent.futures
-    payloads = [(n_tasks, run_id, topo, ci_distribution, mode) for mode in WEIGHT_MODES for run_id in range(n_runs)]
+    payloads = [(n_tasks, run_id, ci_distribution, mode) for mode in WEIGHT_MODES for run_id in range(n_runs)]
     
     if workers is None:
         workers = max(1, (os.cpu_count() or 2) - 1)
@@ -169,7 +148,7 @@ def run_ablation(
             
     for payload, m in zip(payloads, results):
         if m is not None:
-            raw[payload[4]].append(m)
+            raw[payload[3]].append(m)
     set_weight_mode('nonlinear')
 
     # Aggregate

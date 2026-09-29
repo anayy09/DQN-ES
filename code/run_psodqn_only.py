@@ -30,34 +30,13 @@ from src.algorithms.pso_dqn import PSODQNScheduler
 from src.core.task import HealthcareTask
 from src.data_ingestion.event_generator import generate_synthetic_tasks
 from src.simulation.environment import OffloadingEnvironment
-from src.simulation.topology import build_healthcare_topology
+from src.simulation.replicate import build_synthetic_replicate, run_scheduler
 
 ALG_NAME = 'PSO+DQN'
 
-def _simtask_to_healthcaretask(t, topology) -> HealthcareTask:
-    wearable_ids = [nid for nid, n in topology.nodes.items()
-                    if n.node_type == 'wearable']
-    dev_id = wearable_ids[t.device_id % len(wearable_ids)]
-    return HealthcareTask(
-        task_id=t.task_id, device_id=dev_id, timestamp=t.timestamp,
-        data_size_bits=t.data_size_bits, cpu_cycles=t.cpu_cycles,
-        max_delay_s=t.max_delay_s, privacy_sensitivity=t.privacy_sensitivity,
-        ci_score=t.ci_score, attack_probability=t.attack_probability,
-        source=t.source,
-    )
-
-
-def _run_single(n_tasks: int, run_id: int, topo, seed_base: int) -> dict:
-    import random as _r
-    seed = seed_base + run_id * 1000 + n_tasks
-    _r.seed(seed); np.random.seed(seed)
-
-    sim_tasks = generate_synthetic_tasks(n_tasks, ci_distribution='mixed', seed=seed)
-    tasks = [_simtask_to_healthcaretask(t, topo) for t in sim_tasks]
-
-    sched = PSODQNScheduler(topo, seed=seed)
-    env = OffloadingEnvironment(topo, sched, n_tasks=n_tasks, seed=seed)
-    results = env.run(tasks)
+def _run_single(n_tasks: int, run_id: int) -> dict:
+    seeds, topo, tasks = build_synthetic_replicate(run_id, n_tasks, 'mixed')
+    results, _ = run_scheduler(PSODQNScheduler, topo, tasks, seeds)
 
     if not results:
         return {'avg_latency_ms': 0.0, 'avg_energy_mj': 0.0,
@@ -76,9 +55,6 @@ def _run_single(n_tasks: int, run_id: int, topo, seed_base: int) -> dict:
 
 
 def main():
-    topo = build_healthcare_topology(
-        n_wearables=N_WEARABLES, n_fog_nodes=N_FOG_NODES, seed=GLOBAL_SEED,
-    )
     metric_keys = ['avg_latency_ms', 'avg_energy_mj',
                    'avg_privacy_risk', 'sla_violation_pct', 'throughput']
 
@@ -91,7 +67,7 @@ def main():
         runs = []
         for run_id in range(N_RUNS):
             try:
-                m = _run_single(n_tasks, run_id, topo, GLOBAL_SEED)
+                m = _run_single(n_tasks, run_id)
                 runs.append(m)
                 if (run_id + 1) % 5 == 0:
                     pr = np.mean([r['avg_privacy_risk'] for r in runs])

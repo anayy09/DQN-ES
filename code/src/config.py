@@ -15,7 +15,56 @@ from __future__ import annotations
 # Reproducibility
 # ---------------------------------------------------------------------------
 GLOBAL_SEED:      int = 42
-PER_RUN_SEED_FN   = lambda run_id, n_tasks: GLOBAL_SEED + run_id * 1000 + n_tasks
+
+
+def replicate_seed(run_id: int, n_tasks: int = 0) -> int:
+    """
+    Base seed of replicate r at episode length N:  s = 42 + 1000*r + N.
+
+    Every driver derives all of a replicate's randomness from this one value,
+    so replicate r is identical (tasks, topology, environment, scheduler
+    seed) across algorithms and the per-run comparison is paired.
+    Trace-driven drivers (MIT-BIH) pass n_tasks=0.
+    """
+    return GLOBAL_SEED + run_id * 1000 + n_tasks
+
+
+def replicate_seeds(run_id: int, n_tasks: int = 0) -> dict:
+    """
+    Per-stream seeds for one replicate, all derived from replicate_seed().
+
+      task       base seed (task generator; unchanged from the round-1 rule)
+      scheduler  base seed (passed as seed= to every stochastic scheduler)
+      topology   independent stream: device/fog placement per replicate
+      env        independent stream: attack-burst draws in the environment
+
+    topology and env are spawned with numpy SeedSequence so that they do not
+    replay the task generator's random.Random(base) stream.  (With a shared
+    seed the environment's burst draws reused the task generator's CI-tier
+    draws, so every burst landed on a high-CI task.)
+    """
+    import numpy as _np
+    base = replicate_seed(run_id, n_tasks)
+    topo_ss, env_ss = _np.random.SeedSequence(base).spawn(2)
+    return {
+        'base':      base,
+        'task':      base,
+        'scheduler': base,
+        'topology':  int(topo_ss.generate_state(1)[0]),
+        'env':       int(env_ss.generate_state(1)[0]),
+    }
+
+
+def seed_global_rngs(seed: int) -> None:
+    """Seed the process-global `random` and `numpy.random` states."""
+    import random as _random
+    import numpy as _np
+    _random.seed(seed)
+    _np.random.seed(seed % (2 ** 32))
+
+
+# Legacy alias (round-1 name); prefer replicate_seed().
+PER_RUN_SEED_FN = replicate_seed
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +189,19 @@ def get_full_algorithm_registry():
         'Local-Only': LocalOnlyScheduler,
         'Cloud-Only': CloudOnlyScheduler,
     }
+
+
+def make_scheduler(sched_cls, topology, seed: int, **kwargs):
+    """
+    Construct a scheduler for one replicate.  `seed` is passed to every
+    scheduler whose constructor accepts it (all stochastic ones do), so no
+    driver can silently fall back to a class default seed.
+    """
+    import inspect
+    params = inspect.signature(sched_cls.__init__).parameters
+    if 'seed' in params:
+        kwargs['seed'] = seed
+    return sched_cls(topology, **kwargs)
 
 
 def summary() -> str:

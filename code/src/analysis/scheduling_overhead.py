@@ -54,10 +54,7 @@ from src.config import (
     N_WEARABLES,
     PRIMARY_SCALE,
 )
-from src.core.task import HealthcareTask
-from src.data_ingestion.event_generator import generate_synthetic_tasks
-from src.simulation.environment import OffloadingEnvironment
-from src.simulation.topology import build_healthcare_topology
+from src.simulation.replicate import build_synthetic_replicate, run_scheduler
 
 # Algorithms timed per Fix C spec
 TIMED_ALGORITHMS = ['DQN-ES', 'ES-only']
@@ -72,43 +69,15 @@ def _run_cell(payload: tuple) -> tuple:
     payload = (alg_name, run_id, n_tasks)
     Returns (alg_name, run_id, dispatch_times_list, full_select_times_list).
     """
-    import random as _r
     alg_name, run_id, n_tasks = payload
-    seed = GLOBAL_SEED + run_id * 1000 + n_tasks
-    _r.seed(seed)
-    np.random.seed(seed)
 
     from src.config import get_full_algorithm_registry
     registry = get_full_algorithm_registry()
     if alg_name not in registry:
         return alg_name, run_id, [], []
 
-    topo = build_healthcare_topology(
-        n_wearables=N_WEARABLES, n_fog_nodes=N_FOG_NODES, seed=seed,
-    )
-    sched_cls = registry[alg_name]
-    sched = sched_cls(topo)
-
-    raws = generate_synthetic_tasks(n_tasks, 'mixed', seed=seed)
-    wids = [nid for nid, n in topo.nodes.items() if n.node_type == 'wearable']
-    tasks = [
-        HealthcareTask(
-            task_id=t.task_id,
-            device_id=wids[t.device_id % len(wids)],
-            timestamp=t.timestamp,
-            data_size_bits=t.data_size_bits,
-            cpu_cycles=t.cpu_cycles,
-            max_delay_s=t.max_delay_s,
-            privacy_sensitivity=t.privacy_sensitivity,
-            ci_score=t.ci_score,
-            attack_probability=t.attack_probability,
-            source=t.source,
-        )
-        for t in raws
-    ]
-
-    env = OffloadingEnvironment(topo, sched, n_tasks=n_tasks, seed=seed)
-    results = env.run(tasks)
+    seeds, topo, tasks = build_synthetic_replicate(run_id, n_tasks, 'mixed')
+    results, sched = run_scheduler(registry[alg_name], topo, tasks, seeds)
 
     # Dispatch times (excluding Bellman update) from scheduler attribute
     dispatch_times = list(getattr(sched, 'dispatch_times_ms', []))

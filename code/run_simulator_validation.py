@@ -111,14 +111,14 @@ def analytical_values():
     }
 
 
-def simulator_values(topo, n_runs: int = 30, seed_base: int = 42):
+def simulator_values(n_runs: int = 30):
     """Extract same metrics from the simulator across multiple runs."""
     from src.algorithms.cloud_only import CloudOnlyScheduler
     from src.algorithms.dqn_es import DQNESScheduler
     from src.core.task import HealthcareTask
     from src.data_ingestion.event_generator import generate_synthetic_tasks
-    from src.simulation.environment import OffloadingEnvironment
-    import random as _r
+    from src.config import replicate_seeds, seed_global_rngs
+    from src.simulation.replicate import build_topology, run_scheduler
 
     # Run N_RUNS=30 DQN-ES runs and collect edge-routed ECG task metrics
     edge_lats = []
@@ -128,10 +128,12 @@ def simulator_values(topo, n_runs: int = 30, seed_base: int = 42):
 
     N_TASKS = 100  # small per run for speed; edge routing well-sampled
     for run_id in range(n_runs):
-        seed = seed_base + run_id * 1000 + N_TASKS
-        _r.seed(seed); np.random.seed(seed)
+        seeds = replicate_seeds(run_id, N_TASKS)
+        seed_global_rngs(seeds['base'])
+        topo = build_topology(run_id, N_TASKS)
 
-        sim_tasks = generate_synthetic_tasks(N_TASKS, ci_distribution='mixed', seed=seed)
+        sim_tasks = generate_synthetic_tasks(N_TASKS, ci_distribution='mixed',
+                                             seed=seeds['task'])
 
         wearable_ids = [nid for nid, n in topo.nodes.items() if n.node_type == 'wearable']
         tasks = []
@@ -146,11 +148,10 @@ def simulator_values(topo, n_runs: int = 30, seed_base: int = 42):
                 ci_score=t.ci_score,
                 attack_probability=t.attack_probability,
                 source='ecg',
+                task_type='ecg_analysis',
             ))
 
-        sched = DQNESScheduler(topo, seed=seed)
-        env = OffloadingEnvironment(topo, sched, n_tasks=N_TASKS, seed=seed)
-        results = env.run(tasks)
+        results, _ = run_scheduler(DQNESScheduler, topo, tasks, seeds)
 
         for r in results:
             ntype = r.get('node_type', '')
@@ -173,16 +174,14 @@ def simulator_values(topo, n_runs: int = 30, seed_base: int = 42):
 
 
 def main():
-    from src.simulation.topology import build_healthcare_topology
-    from src.config import GLOBAL_SEED, N_FOG_NODES, N_WEARABLES
+    from src.config import replicate_seeds, seed_global_rngs
+    from src.simulation.replicate import build_topology, run_scheduler
 
     print('[SIM-VAL] Computing analytical reference values...')
     analytic = analytical_values()
 
     print('[SIM-VAL] Running simulator to collect matching metrics (30 runs)...')
-    topo = build_healthcare_topology(n_wearables=N_WEARABLES, n_fog_nodes=N_FOG_NODES,
-                                     seed=GLOBAL_SEED)
-    simulated = simulator_values(topo, n_runs=30, seed_base=GLOBAL_SEED)
+    simulated = simulator_values(n_runs=30)
 
     print('\n[VALIDATION TABLE]')
     print(f'  {"Metric":<40} {"Analytical":>14} {"Simulated":>14} {"Delta%":>8}')
@@ -192,25 +191,24 @@ def main():
     from src.algorithms.local_only import LocalOnlyScheduler
     from src.core.task import HealthcareTask
     from src.data_ingestion.event_generator import generate_synthetic_tasks
-    from src.simulation.environment import OffloadingEnvironment
-    import random as _r_local
 
     local_lats_check = []
     local_energies_check = []
     for run_id in range(10):
-        seed = GLOBAL_SEED + run_id * 1000 + 100
-        _r_local.seed(seed); np.random.seed(seed)
-        sim_tasks = generate_synthetic_tasks(100, ci_distribution='mixed', seed=seed)
+        seeds = replicate_seeds(run_id, 100)
+        seed_global_rngs(seeds['base'])
+        topo = build_topology(run_id, 100)
+        sim_tasks = generate_synthetic_tasks(100, ci_distribution='mixed',
+                                             seed=seeds['task'])
         wids = [nid for nid, n in topo.nodes.items() if n.node_type == 'wearable']
         tasks_local = [HealthcareTask(
             task_id=t.task_id, device_id=wids[t.device_id % len(wids)],
             timestamp=t.timestamp, data_size_bits=ECG_BITS, cpu_cycles=ECG_CYCLES,
             max_delay_s=ECG_DEADLINE, privacy_sensitivity=t.privacy_sensitivity,
             ci_score=t.ci_score, attack_probability=t.attack_probability, source='ecg',
+            task_type='ecg_analysis',
         ) for t in sim_tasks]
-        sched_local = LocalOnlyScheduler(topo)
-        env_local = OffloadingEnvironment(topo, sched_local, n_tasks=100, seed=seed)
-        res_local = env_local.run(tasks_local)
+        res_local, _ = run_scheduler(LocalOnlyScheduler, topo, tasks_local, seeds)
         for r in res_local:
             local_lats_check.append(r['latency_ms'])
             local_energies_check.append(r['energy_mj'])

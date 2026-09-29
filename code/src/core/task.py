@@ -29,6 +29,7 @@ class HealthcareTask:
     ci_score: float               # Φ_i ∈ [0, 1] — Criticality Index
     attack_probability: float = 0.0   # p_{atk,i} ∈ [0, 1] — adversarial threat level
     source: str = 'synthetic'         # 'synthetic' | 'physionet' | 'mimic'
+    task_type: str = 'unknown'        # key into TASK_PROFILES (e.g. 'ecg_analysis')
     assigned_node: Optional[int] = None
     actual_latency_s: Optional[float] = None
     actual_energy_j: Optional[float] = None

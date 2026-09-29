@@ -84,7 +84,7 @@ class DQNOnlyScheduler(BaseScheduler):
         )
         self._target_net.copy_weights_from(self._online_net)
 
-        self._replay = ReplayBuffer(capacity=replay_capacity)
+        self._replay = ReplayBuffer(capacity=replay_capacity, seed=seed)
         self._rng = np.random.default_rng(seed)
         self._step_count = 0
 

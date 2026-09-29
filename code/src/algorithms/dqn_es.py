@@ -50,14 +50,17 @@ class ReplayBuffer:
     """
     Fixed-capacity circular experience replay buffer for DQN training.
     """
-    def __init__(self, capacity: int = 10_000):
+    def __init__(self, capacity: int = 10_000, seed: Optional[int] = None):
         self.buffer: deque = deque(maxlen=capacity)
+        # Own RNG so minibatch sampling depends only on the scheduler seed,
+        # not on the process-global `random` state.
+        self._rng = random.Random(seed)
 
     def push(self, state: np.ndarray, action: int, reward: float, next_state: np.ndarray, done: bool) -> None:
         self.buffer.append((state.copy(), int(action), float(reward), next_state.copy(), bool(done)))
 
     def sample(self, batch_size: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        batch = random.sample(self.buffer, batch_size)
+        batch = self._rng.sample(self.buffer, batch_size)
         states, actions, rewards, next_states, dones = zip(*batch)
         return (
             np.array(states, dtype=float),
@@ -217,7 +220,7 @@ class DQNESScheduler(BaseScheduler):
         )
         self._target_net.copy_weights_from(self._online_net)
 
-        self._replay = ReplayBuffer(capacity=replay_capacity)
+        self._replay = ReplayBuffer(capacity=replay_capacity, seed=seed)
 
         self._step_count = 0
         self._total_loss = 0.0

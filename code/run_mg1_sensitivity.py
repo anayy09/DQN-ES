@@ -54,43 +54,14 @@ def _run_single_worker(args: tuple):
     import numpy as _np
     import warnings as _w
 
-    from src.config import N_FOG_NODES as _NF, N_WEARABLES as _NW, get_full_algorithm_registry
-    from src.core.task import HealthcareTask
-    from src.data_ingestion.event_generator import generate_synthetic_tasks
-    from src.simulation.environment import OffloadingEnvironment
-    from src.simulation.topology import build_healthcare_topology
+    from src.config import get_full_algorithm_registry
+    from src.simulation.replicate import build_synthetic_replicate, run_scheduler
 
-    def _ht(t, topo):
-        wids = [nid for nid, n in topo.nodes.items() if n.node_type == 'wearable']
-        return HealthcareTask(
-            task_id=t.task_id, device_id=wids[t.device_id % len(wids)],
-            timestamp=t.timestamp, data_size_bits=t.data_size_bits,
-            cpu_cycles=t.cpu_cycles, max_delay_s=t.max_delay_s,
-            privacy_sensitivity=t.privacy_sensitivity, ci_score=t.ci_score,
-            attack_probability=t.attack_probability, source=t.source,
-        )
-
-    def _accepts_seed(cls):
-        import inspect
-        try:
-            return 'seed' in inspect.signature(cls.__init__).parameters
-        except Exception:
-            return False
-
-    topo = build_healthcare_topology(n_wearables=_NW, n_fog_nodes=_NF, seed=seed_base)
     sched_cls = get_full_algorithm_registry()[alg_name]
 
     try:
-        seed = seed_base + run_id * 1000 + n_tasks
-        _r.seed(seed)
-        _np.random.seed(seed)
-
-        sim_tasks = generate_synthetic_tasks(n_tasks, ci_distribution='mixed', seed=seed)
-        tasks = [_ht(t, topo) for t in sim_tasks]
-
-        sched = sched_cls(topo, seed=seed) if _accepts_seed(sched_cls) else sched_cls(topo)
-        env   = OffloadingEnvironment(topo, sched, n_tasks=n_tasks, seed=seed)
-        res   = env.run(tasks)
+        seeds, topo, tasks = build_synthetic_replicate(run_id, n_tasks, 'mixed')
+        res, _ = run_scheduler(sched_cls, topo, tasks, seeds)
 
         if not res:
             return run_id, alg_name, {}

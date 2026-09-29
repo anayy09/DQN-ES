@@ -54,9 +54,10 @@ from src.config import (
     get_full_algorithm_registry,
 )
 from src.core.task import HealthcareTask
-from src.data_ingestion.event_generator import generate_synthetic_tasks
-from src.simulation.environment import OffloadingEnvironment
-from src.simulation.topology import build_healthcare_topology
+from src.simulation.replicate import (
+    build_synthetic_replicate,
+    run_scheduler,
+)
 
 try:
     from tqdm import tqdm
@@ -68,33 +69,10 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def _simtask_to_healthcaretask(t, topology) -> HealthcareTask:
-    wearable_ids = [nid for nid, n in topology.nodes.items()
-                    if n.node_type == 'wearable']
-    dev_id = wearable_ids[t.device_id % len(wearable_ids)]
-    return HealthcareTask(
-        task_id=t.task_id, device_id=dev_id, timestamp=t.timestamp,
-        data_size_bits=t.data_size_bits, cpu_cycles=t.cpu_cycles,
-        max_delay_s=t.max_delay_s, privacy_sensitivity=t.privacy_sensitivity,
-        ci_score=t.ci_score, attack_probability=t.attack_probability,
-        source=t.source,
-    )
-
-
-def _run_single(alg_name, sched_cls, n_tasks, run_id, topo, seed_base):
-    """One independent Monte Carlo run for one algorithm."""
-    import random as _r
-    seed = seed_base + run_id * 1000 + n_tasks
-    _r.seed(seed)
-    np.random.seed(seed)
-
-    sim_tasks = generate_synthetic_tasks(n_tasks, ci_distribution='mixed',
-                                         seed=seed)
-    tasks = [_simtask_to_healthcaretask(t, topo) for t in sim_tasks]
-
-    sched = sched_cls(topo)
-    env = OffloadingEnvironment(topo, sched, n_tasks=n_tasks, seed=seed)
-    results = env.run(tasks)
+def _run_single(alg_name, sched_cls, n_tasks, run_id):
+    """One Monte Carlo replicate for one algorithm (topology per replicate)."""
+    seeds, topo, tasks = build_synthetic_replicate(run_id, n_tasks, 'mixed')
+    results, sched = run_scheduler(sched_cls, topo, tasks, seeds)
 
     if not results:
         return {
@@ -119,9 +97,9 @@ def _run_single(alg_name, sched_cls, n_tasks, run_id, topo, seed_base):
     return metrics, (list(epsilon_history) if epsilon_history else None)
 
 def _run_single_wrapper(args):
-    alg, sched_cls, n_tasks, run_id, topo, seed_base = args
+    alg, sched_cls, n_tasks, run_id = args
     try:
-        m, eps_hist = _run_single(alg, sched_cls, n_tasks, run_id, topo, seed_base)
+        m, eps_hist = _run_single(alg, sched_cls, n_tasks, run_id)
         return run_id, m, eps_hist, None
     except Exception as exc:
         return run_id, None, None, str(exc)
@@ -136,11 +114,6 @@ def run_full(
     workers: int = None,
 ) -> Dict:
     results_dir.mkdir(parents=True, exist_ok=True)
-
-    topo = build_healthcare_topology(
-        n_wearables=N_WEARABLES, n_fog_nodes=N_FOG_NODES,
-        seed=GLOBAL_SEED,
-    )
 
     registry = get_full_algorithm_registry()
     alg_names = list(registry.keys())
@@ -165,7 +138,7 @@ def run_full(
         for alg in alg_names:
             sched_cls = registry[alg]
             for run_id in range(n_runs):
-                args_list.append((alg, sched_cls, n_tasks, run_id, topo, GLOBAL_SEED))
+                args_list.append((alg, sched_cls, n_tasks, run_id))
                 
         with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
             if _TQDM:

@@ -36,11 +36,13 @@ from src.config import (
     N_FOG_NODES,
     N_WEARABLES,
     get_full_algorithm_registry,
+    replicate_seeds,
+    seed_global_rngs,
 )
 from src.core.task import TASK_PROFILES, HealthcareTask
 from src.data_ingestion.parse_mitbih import load_mitbih_events
 from src.simulation.environment import OffloadingEnvironment
-from src.simulation.topology import build_healthcare_topology
+from src.simulation.replicate import build_topology, run_scheduler
 
 # -------------------------------------------------------------------------
 # Worker-side globals
@@ -73,6 +75,7 @@ def _events_to_tasks(events: list, topo, rng) -> list:
             ci_score=float(ev.get('ci_score', 0.5)),
             attack_probability=0.0,
             source='mitbih',
+            task_type='ecg_analysis',
         ))
     return tasks
 
@@ -82,21 +85,15 @@ def _run_cell(payload: tuple) -> tuple:
     alg_name, run_id = payload
     t0 = time.time()
 
-    seed = GLOBAL_SEED + run_id * 1000
-    _r.seed(seed)
-    np.random.seed(seed)
-    local_rng = _r.Random(seed)
+    seeds = replicate_seeds(run_id, 0)
+    seed_global_rngs(seeds['base'])
+    local_rng = _r.Random(seeds['task'])
 
-    topo = build_healthcare_topology(
-        n_wearables=N_WEARABLES, n_fog_nodes=N_FOG_NODES, seed=seed,
-    )
+    topo = build_topology(run_id, 0)
     tasks = _events_to_tasks(_WORKER_EVENTS, topo, local_rng)
 
     registry = get_full_algorithm_registry()
-    sched_cls = registry[alg_name]
-    sched = sched_cls(topo)
-    env = OffloadingEnvironment(topo, sched, len(tasks), seed=seed)
-    res = env.run(tasks)
+    res, _ = run_scheduler(registry[alg_name], topo, tasks, seeds)
 
     if not res:
         return alg_name, run_id, None, time.time() - t0
