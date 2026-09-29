@@ -114,6 +114,7 @@ def _run_single_wrapper(args):
     try:
         m, eps_hist = _run_single(alg, sched_cls, n_tasks, run_id, raw_dir,
                                   overrides)
+        m['run_id'] = run_id
         return run_id, m, eps_hist, None
     except Exception as exc:
         return run_id, None, None, str(exc)
@@ -198,8 +199,8 @@ def run_full(
         for alg in alg_names:
             agg = {}
             for key in metric_keys:
-                vals = np.array([r[key] for r in mc_raw[n_tasks][alg]
-                                 if key in r], dtype=float)
+                runs = [r for r in mc_raw[n_tasks][alg] if key in r]
+                vals = np.array([r[key] for r in runs], dtype=float)
                 if len(vals):
                     agg[key] = {
                         'mean': float(vals.mean()),
@@ -208,10 +209,12 @@ def run_full(
                         'max':  float(vals.max()),
                         'n':    int(len(vals)),
                         'samples': [float(v) for v in vals],
+                        'run_ids': [int(r['run_id']) for r in runs],
                     }
                 else:
                     agg[key] = {'mean': 0.0, 'std': 0.0, 'min': 0.0,
-                                'max': 0.0, 'n': 0, 'samples': []}
+                                'max': 0.0, 'n': 0, 'samples': [],
+                                'run_ids': []}
             mc_summary[n_tasks][alg] = agg
 
         _print_table(n_tasks, mc_summary[n_tasks], alg_names)

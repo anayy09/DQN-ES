@@ -213,20 +213,54 @@ MITBIH_PAYLOAD_BITS = ECG_PAYLOAD_BITS
 
 
 # ---------------------------------------------------------------------------
-# Statistical testing  (Fix 4, Fix E: updated for PSO+DQN)
+# Statistical testing  (plan E10; analysis/statistical_tests.py, paired_stats.py)
 # ---------------------------------------------------------------------------
-# Significance tested on four metrics across all baselines vs DQN-ES.
-# Bonferroni correction: alpha_corrected = 0.05 / (n_baselines * n_metrics)
+# Unit = replicate (per-run mean); replicates are paired by run_id because
+# every algorithm sees the same seeds.  Test: Wilcoxon signed-rank on the
+# paired differences d = reference - comparator, exact p; Holm over each
+# family declared here (before the runs); effect sizes: Hodges-Lehmann
+# paired difference with a replicate-bootstrap CI and matched-pairs
+# rank-biserial r.  Cohen's d is not reported.
 STAT_ALPHA:          float = 0.05
 STAT_METRICS:        list[str] = [
     'avg_latency_ms', 'avg_energy_mj',
     'avg_privacy_risk', 'sla_violation_pct',
 ]
-# Fix A: PSO+DQN added — family size is now 6 × 4 = 24
 STAT_BASELINES:      list[str] = [
     'PSO', 'ACO', 'HS-HHO', 'ES-only', 'DQN-only',
 ]
-# Bonferroni denominator = len(STAT_BASELINES) * len(STAT_METRICS) = 24
+STAT_BOOT_N:         int   = 10_000
+STAT_BOOT_SEED:      int   = GLOBAL_SEED
+STAT_CI_LEVEL:       float = 0.95
+
+# Declared comparison families.  Holm is applied within a family across all
+# (comparator x metric) tests.  PSO+DQN is not tested: at K=3 it makes the
+# same decisions as DQN-ES by construction (reported as "identical").
+STAT_FAMILIES: dict = {
+    'main': {                                   # 5 x 4 = 20 tests
+        'reference':   'DQN-ES',
+        'comparators': STAT_BASELINES,
+        'metrics':     STAT_METRICS,
+    },
+    'decomposition': {                          # E2: 2 x 4 = 8 tests
+        'reference':   'DQN-ES',
+        'comparators': ['Random-K[K=3]', 'Static-Tier'],
+        'metrics':     STAT_METRICS,
+    },
+    'weight_ablation': {                        # E15: 3 x 4 = 12 tests
+        'reference':   'nonlinear',
+        'comparators': ['flat', 'step', 'linear'],
+        'metrics':     STAT_METRICS,
+    },
+}
+
+# TOST (equivalence) only where equivalence is claimed; off by default.
+# Margins are declared here, before the runs, in the metric's units.
+STAT_TOST_ENABLED:   bool  = False
+STAT_TOST_MARGINS:   dict  = {
+    'avg_privacy_risk':  0.01,
+    'avg_latency_ms':    2.0,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -340,8 +374,8 @@ def summary() -> str:
         f"  CI weights (non-linear, default): "
         f"alpha_E={ALPHA_E} beta_L={BETA_L} gamma_P={GAMMA_P}\n"
         f"  Privacy guard entropy threshold: {PRIVACY_ENTROPY_THRESHOLD}\n"
-        f"  Statistical tests: alpha={STAT_ALPHA}  "
-        f"Bonferroni denom={len(STAT_BASELINES)*len(STAT_METRICS)}\n"
+        f"  Statistical tests: paired signed-rank (exact), Holm, alpha={STAT_ALPHA}; "
+        f"families={ {k: len(v['comparators']) * len(v['metrics']) for k, v in STAT_FAMILIES.items()} }\n"
     )
 
 

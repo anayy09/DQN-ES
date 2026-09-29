@@ -92,12 +92,16 @@ def main():
         )
 
     # ------------------------------------------------------------------
-    # Step 2: Pairwise Wilcoxon + Bonferroni (Fix 4; Fix E: 24 comparisons)
+    # Step 2: Paired signed-rank + Holm over the declared families (E10)
     # ------------------------------------------------------------------
     if not args.skip_stats:
-        _header('Step 2 — Wilcoxon + Bonferroni (6 baselines × 4 metrics = 24)')
+        _header('Step 2 — paired signed-rank (exact) + Holm, HL diff + CI, rank-biserial r')
         from src.analysis.statistical_tests import run_pairwise_tests
-        run_pairwise_tests(RESULTS_DIR / 'mc_full_summary.json', RESULTS_DIR, workers=args.workers)
+        exp_summary = RESULTS_DIR / 'mc_exp_summary.json'
+        families = ['main'] + (['decomposition'] if exp_summary.exists() else [])
+        run_pairwise_tests(RESULTS_DIR / 'mc_full_summary.json', RESULTS_DIR,
+                           workers=args.workers, families=families,
+                           extra_summaries=[exp_summary])
 
     # ------------------------------------------------------------------
     # Step 3: Mixed-CI weight ablation (Fix 6)
@@ -213,7 +217,7 @@ def main():
     _header(f'Q1 pipeline complete in {dt/60:.1f} min')
     print('  Deliverables:')
     print(f'   results/mc_full_summary.json           — MC with PSO+DQN')
-    print(f'   results/table3_n1000_with_pvals.csv    — Table III (24-test Bonferroni)')
+    print(f'   results/table3_n1000_with_pvals.csv    — main table (paired, Holm over 20)')
     print(f'   results/table5_weight_ablation.csv     — Table IV (mixed-CI)')
     print(f'   results/table6_highci_weights.csv      — Table VI (all-high-CI)')
     print(f'   results/table5_mitbih_trace.csv        — Table V (real-trace)')
@@ -246,7 +250,7 @@ def _write_framing_note(results_dir: Path) -> None:
 
     import json
     import numpy as np
-    from scipy import stats as scipy_stats
+    from src.analysis.paired_stats import holm_adjust, paired_comparison, samples_by_run
 
     with open(mc_path, 'r', encoding='utf-8') as fh:
         summary = json.load(fh)
@@ -272,32 +276,38 @@ def _write_framing_note(results_dir: Path) -> None:
         'Results:',
     ]
 
+    # Paired by replicate (same seeds); exact signed-rank, Holm over the 4
+    # metrics.  At K=3 PSO+DQN returns the enumeration argmin by
+    # construction, so with per-replicate seeds the runs should be identical.
     pso_matches = []
+    comps = {}
     for metric in metrics:
-        bbo_s = np.array(bbodrl.get(metric, {}).get('samples', []), dtype=float)
-        pso_s = np.array(psodqn.get(metric, {}).get('samples', []), dtype=float)
-
-        if len(bbo_s) == 0 or len(pso_s) == 0:
+        if not bbodrl.get(metric, {}).get('samples') or \
+                not psodqn.get(metric, {}).get('samples'):
+            continue
+        comps[metric] = paired_comparison(samples_by_run(bbodrl[metric]),
+                                          samples_by_run(psodqn[metric]),
+                                          n_boot=2000)
+    adj = dict(zip(comps, holm_adjust([c['p_exact'] for c in comps.values()])))
+    for metric in metrics:
+        if metric not in comps:
             lines.append(f'  {metric}: insufficient data')
             continue
-
-        bbo_mu = float(bbo_s.mean())
-        pso_mu = float(pso_s.mean())
-        try:
-            _, p_val = scipy_stats.ranksums(bbo_s, pso_s)
-            p_corr = min(p_val * 4, 1.0)   # Bonferroni for 4 metrics
-        except Exception:
-            p_corr = float('nan')
-
-        diff_pct = 100.0 * (pso_mu - bbo_mu) / max(abs(bbo_mu), 1e-12)
-        sig = 'SIGNIFICANT' if (not np.isnan(p_corr) and p_corr < 0.05) else 'not significant'
+        c = comps[metric]
+        if c['identical']:
+            lines.append(f'  {metric}:  DQN-ES={c["mean_ref"]:.3f}  '
+                         f'PSO+DQN={c["mean_cmp"]:.3f}  identical on all '
+                         f'{c["n_pairs"]} paired replicates')
+            pso_matches.append(True)
+            continue
+        sig = 'SIGNIFICANT' if adj[metric] < 0.05 else 'not significant'
         lines.append(
             f'  {metric}:'
-            f'  DQN-ES={bbo_mu:.3f}  PSO+DQN={pso_mu:.3f}'
-            f'  diff={diff_pct:+.1f}%'
-            f'  p_corr={p_corr:.3e}  [{sig}]'
+            f'  DQN-ES={c["mean_ref"]:.3f}  PSO+DQN={c["mean_cmp"]:.3f}'
+            f'  HL d={c["hl_diff"]:+.4f} [{c["ci_lo"]:+.4f}, {c["ci_hi"]:+.4f}]'
+            f'  p_holm={adj[metric]:.3e}  [{sig}]'
         )
-        pso_matches.append(not (not np.isnan(p_corr) and p_corr < 0.05))
+        pso_matches.append(adj[metric] >= 0.05)
 
     lines += ['']
 

@@ -137,6 +137,7 @@ def _run_cell(payload: tuple) -> tuple:
                                          for r in res) / len(res),
     }
     add_steady_state(metrics, res)
+    metrics['run_id'] = run_id
     return alg_name, run_id, metrics, time.time() - t0
 
 
@@ -233,7 +234,7 @@ def run_mitbih_trace(
     summary = {}
     csv_rows = []
     for alg in alg_names:
-        runs = raw[alg]
+        runs = sorted(raw[alg], key=lambda r: r['run_id'])   # pair by replicate
         row = {'algorithm': alg}
         agg = {}
         for k in ['avg_latency_ms', 'avg_energy_mj',
@@ -246,16 +247,18 @@ def run_mitbih_trace(
                 continue
             agg[k] = {'mean': float(vs.mean()),
                       'std':  float(vs.std()),
-                      'samples': vs.tolist()}
+                      'samples': vs.tolist(),
+                      'run_ids': [int(r['run_id']) for r in runs]}
             row[f'{k}_mean'] = float(vs.mean())
             row[f'{k}_std']  = float(vs.std())
         # Steady-state R_P (F7): only runs long enough to pass warm-up
-        ss = np.array([r['avg_privacy_risk_ss'] for r in runs
-                       if 'avg_privacy_risk_ss' in r], dtype=float)
+        ss_runs = [r for r in runs if 'avg_privacy_risk_ss' in r]
+        ss = np.array([r['avg_privacy_risk_ss'] for r in ss_runs], dtype=float)
         if len(ss):
             agg['avg_privacy_risk_ss'] = {'mean': float(ss.mean()),
                                           'std': float(ss.std()),
-                                          'samples': ss.tolist()}
+                                          'samples': ss.tolist(),
+                                          'run_ids': [int(r['run_id']) for r in ss_runs]}
             row['avg_privacy_risk_ss_mean'] = float(ss.mean())
             row['avg_privacy_risk_ss_std'] = float(ss.std())
         summary[alg] = agg

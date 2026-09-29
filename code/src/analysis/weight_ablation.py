@@ -30,7 +30,6 @@ from pathlib import Path
 from statistics import mean
 
 import numpy as np
-from scipy import stats as scipy_stats
 
 _CODE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
@@ -71,45 +70,13 @@ def _run_once(payload):
     if not res:
         return None
     return {
+        'run_id':            run_id,
         'avg_latency_ms':    mean(r['latency_ms']    for r in res),
         'avg_energy_mj':     mean(r['energy_mj']     for r in res),
         'avg_privacy_risk':  mean(r['privacy_risk']  for r in res),
         'sla_violation_pct': 100.0 * sum(r['sla_violated']
                                          for r in res) / len(res),
     }
-
-
-def _wilcoxon_vs_nonlinear(summary: dict) -> dict:
-    """
-    Fix B: Wilcoxon rank-sum tests between non-linear and each other scheme.
-    Bonferroni correction: 3 schemes × 4 metrics = 12 tests.
-    Returns dict[metric][scheme] = {p_raw, p_corrected}.
-    """
-    comparators = ['flat', 'step', 'linear']
-    metric_keys = ['avg_latency_ms', 'avg_energy_mj',
-                   'avg_privacy_risk', 'sla_violation_pct']
-    n_tests = len(comparators) * len(metric_keys)   # 12
-    alpha = 0.05
-
-    if 'nonlinear' not in summary:
-        return {}
-    nl_samples = {k: np.array(summary['nonlinear'][k]['samples'], dtype=float)
-                  for k in metric_keys}
-
-    results = {}
-    for metric in metric_keys:
-        results[metric] = {}
-        for scheme in comparators:
-            if scheme not in summary:
-                continue
-            s2 = np.array(summary[scheme][metric]['samples'], dtype=float)
-            try:
-                _, p_raw = scipy_stats.ranksums(nl_samples[metric], s2)
-            except Exception:
-                p_raw = float('nan')
-            p_corr = min(float(p_raw) * n_tests, 1.0) if not np.isnan(p_raw) else float('nan')
-            results[metric][scheme] = {'p_raw': float(p_raw), 'p_corrected': float(p_corr)}
-    return results
 
 
 def run_ablation(
@@ -162,29 +129,35 @@ def run_ablation(
                   'avg_privacy_risk', 'sla_violation_pct']:
             vs = np.array([r[k] for r in runs], dtype=float)
             agg[k] = {'mean': float(vs.mean()), 'std': float(vs.std()),
-                      'samples': vs.tolist()}
+                      'samples': vs.tolist(),
+                      'run_ids': [int(r['run_id']) for r in runs]}
             row[f'{k}_mean'] = float(vs.mean())
             row[f'{k}_std']  = float(vs.std())
         summary[mode] = agg
         csv_rows.append(row)
 
-    # Wilcoxon tests between non-linear and other schemes
-    wilcoxon_results = _wilcoxon_vs_nonlinear(summary)
-    if wilcoxon_results:
-        print('\n[WEIGHT-AB] Wilcoxon tests (non-linear vs. others), '
-              'Bonferroni-corrected (12 tests):')
-        for metric, comps in wilcoxon_results.items():
-            for scheme, r in comps.items():
-                sig = '*' if r['p_corrected'] < 0.05 else ' '
-                print(f'  {metric} vs {scheme}: p_corr={r["p_corrected"]:.4e}{sig}')
-        # Append Wilcoxon results to csv_rows
-        for mode in WEIGHT_MODES:
-            for row in csv_rows:
-                if row['weight_mode'] == mode:
-                    for metric, comps in wilcoxon_results.items():
-                        if mode in comps:
-                            row[f'{metric}_p_corr_vs_nonlinear'] = \
-                                comps[mode].get('p_corrected', float('nan'))
+    # Paired signed-rank tests, non-linear vs each other scheme (declared
+    # family 'weight_ablation' in src.config.STAT_FAMILIES; Holm over 12).
+    # Imported here so spawned workers do not import scipy via eval_stats
+    from src.analysis.statistical_tests import run_family_tests
+    tests = run_family_tests(summary, 'weight_ablation')
+    print('\n[WEIGHT-AB] Paired signed-rank tests (d = nonlinear - scheme), '
+          f'Holm over {len(tests)} tests:')
+    for t in tests:
+        if t['status'] != 'tested':
+            print(f"  {t['metric']} vs {t['comparator']}: {t['status']}")
+            continue
+        sig = '*' if t['reject_holm'] else ' '
+        print(f"  {t['metric']} vs {t['comparator']}: d={t['hl_diff']:+.4f} "
+              f"[{t['ci_lo']:+.4f}, {t['ci_hi']:+.4f}] p_holm={t['p_holm']:.4e}{sig}")
+    for row in csv_rows:
+        for t in tests:
+            if t['comparator'] == row['weight_mode'] and t['status'] == 'tested':
+                m = t['metric']
+                row[f'{m}_hl_diff_nonlinear_minus'] = t['hl_diff']
+                row[f'{m}_ci_lo'] = t['ci_lo']
+                row[f'{m}_ci_hi'] = t['ci_hi']
+                row[f'{m}_p_holm_vs_nonlinear'] = t['p_holm']
 
     # Determine output file names based on ci_distribution
     if ci_distribution == 'all_high':
@@ -196,7 +169,8 @@ def run_ablation(
 
     if csv_rows:
         with open(out_dir / csv_name, 'w', newline='', encoding='utf-8') as fh:
-            wr = csv.DictWriter(fh, fieldnames=list(csv_rows[0].keys()))
+            fields = list(dict.fromkeys(k for r in csv_rows for k in r))
+            wr = csv.DictWriter(fh, fieldnames=fields, restval='')
             wr.writeheader()
             wr.writerows(csv_rows)
     with open(out_dir / json_name, 'w', encoding='utf-8') as fh:
