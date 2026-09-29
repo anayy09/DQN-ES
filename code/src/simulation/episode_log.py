@@ -65,6 +65,23 @@ def add_steady_state(metrics: dict, results: List[dict],
     return metrics
 
 
+def add_queue_metrics(metrics: dict, results: List[dict]) -> dict:
+    """
+    avg_queue_ms: mean FIFO waiting time per task (D16).
+    edge_utilisation: service time on edge nodes / arrival span (achieved
+    utilisation; E7's rho target is the offered load).
+    """
+    if not results:
+        return metrics
+    metrics['avg_queue_ms'] = sum(r['latency_queue_ms'] for r in results) / len(results)
+    ts = [r['timestamp'] for r in results]
+    span = max(ts) - min(ts)
+    busy = sum(r['latency_compute_ms'] for r in results
+               if r.get('node_type') == 'edge') / 1000.0
+    metrics['edge_utilisation'] = busy / span if span > 0 else 0.0
+    return metrics
+
+
 def _safe(name: str) -> str:
     return re.sub(r'[^A-Za-z0-9._-]+', '_', name).strip('_')
 

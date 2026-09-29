@@ -45,13 +45,19 @@ def replicate_seeds(run_id: int, n_tasks: int = 0) -> dict:
     """
     import numpy as _np
     base = replicate_seed(run_id, n_tasks)
-    topo_ss, env_ss = _np.random.SeedSequence(base).spawn(2)
+    # Child i of a SeedSequence depends only on i, so adding streams never
+    # changes the existing ones.
+    kids = _np.random.SeedSequence(base).spawn(5)
+    s = lambda k: int(kids[k].generate_state(1)[0])
     return {
         'base':      base,
         'task':      base,
         'scheduler': base,
-        'topology':  int(topo_ss.generate_state(1)[0]),
-        'env':       int(env_ss.generate_state(1)[0]),
+        'topology':  s(0),
+        'env':       s(1),
+        'arrival':   s(2),   # MMPP-2 state/arrival draws (E7)
+        'ci_noise':  s(3),   # scheduler-visible CI perturbation (E14)
+        'pretrain':  s(4),   # warm-start pre-training stream (E12)
     }
 
 
@@ -186,6 +192,23 @@ DOWNLINK_TX_POWER_W:           float      = 0.100
 WEARABLE_RX_CURRENT_A:         float      = 0.088
 WEARABLE_SUPPLY_V:             float      = 3.3
 WEARABLE_RX_POWER_W:           float      = WEARABLE_RX_CURRENT_A * WEARABLE_SUPPLY_V
+
+
+# ---------------------------------------------------------------------------
+# Workload realism (plan E7; data_ingestion/event_generator.py)
+# ---------------------------------------------------------------------------
+# Default arrivals: Poisson with rate N / 300 s.  MMPP-2 option: two states
+# with rate multipliers MMPP2_RATE_MULTIPLIERS (renormalised so the long-run
+# rate equals the Poisson rate); after each arrival the state switches with
+# probability MMPP2_SWITCH_PROBS[state] (low->high, high->low).  Assumed
+# values, chosen to give short bursts at ~4x the mean rate.
+MMPP2_RATE_MULTIPLIERS: tuple = (0.5, 4.0)
+MMPP2_SWITCH_PROBS:     tuple = (0.02, 0.10)
+# Load knob: target *offered* edge utilisation rho = lambda * E[C_i] / f_edge
+# (the utilisation if every task ran on the edge), which sets the absolute
+# arrival rate lambda independent of N.  The achieved utilisation depends on
+# the scheduler and is reported per run (edge_utilisation).
+LOAD_RHO_TARGETS:       list  = [0.3, 0.6, 0.85]
 
 
 # ---------------------------------------------------------------------------

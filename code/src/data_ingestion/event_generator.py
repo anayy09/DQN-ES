@@ -77,6 +77,41 @@ def _poisson_timestamps(n: int, lam: float, rng: random.Random) -> list:
     return timestamps
 
 
+def _mmpp2_timestamps(n: int, lam: float, rng: random.Random,
+                      multipliers, switch_probs) -> list:
+    """
+    MMPP-2 arrival times with long-run rate lam.  State s in {0, 1}; the
+    inter-arrival time in state s is Exp(lam * m_s); after each arrival the
+    state flips with probability switch_probs[s].  The multipliers are
+    rescaled so the stationary mean inter-arrival time is exactly 1 / lam.
+    """
+    p01, p10 = switch_probs
+    pi0, pi1 = p10 / (p01 + p10), p01 / (p01 + p10)   # arrival-stationary
+    c = pi0 / multipliers[0] + pi1 / multipliers[1]
+    m = (multipliers[0] * c, multipliers[1] * c)
+    state = 0 if rng.random() < pi0 else 1
+    t, out = 0.0, []
+    for _ in range(n):
+        t += rng.expovariate(lam * m[state])
+        out.append(round(t, 6))
+        if rng.random() < (p01 if state == 0 else p10):
+            state = 1 - state
+    return out
+
+
+def mean_cycles_per_task() -> float:
+    """E[C_i] under TASK_TYPE_WEIGHTS."""
+    tot = sum(TASK_TYPE_WEIGHTS.values())
+    return sum(w * TASK_PROFILES[k]['cpu_cycles']
+               for k, w in TASK_TYPE_WEIGHTS.items()) / tot
+
+
+def arrival_rate_for_edge_load(rho: float) -> float:
+    """lambda such that the offered edge utilisation lambda E[C] / f_edge = rho."""
+    from src.core.hardware_profiles import EDGE_GATEWAY_RPI4
+    return rho * EDGE_GATEWAY_RPI4.cpu_freq_hz / mean_cycles_per_task()
+
+
 def _sample_attack_prob(ciciot_events: Optional[list],
                         rng: random.Random) -> float:
     """Return a random attack_probability from the CICIoT pool, or 0.0."""
@@ -177,6 +212,9 @@ def generate_synthetic_tasks(
         n: int,
         ci_distribution: str = "mixed",
         seed: int = 42,
+        arrival_process: str = "poisson",
+        arrival_rate: Optional[float] = None,
+        arrival_seed: Optional[int] = None,
 ) -> List[SimulationTask]:
     """
     Generate n purely synthetic SimulationTask objects.
@@ -192,6 +230,13 @@ def generate_synthetic_tasks(
         'low'    → all low CI
     seed : int
         Random seed for reproducibility.
+    arrival_process : 'poisson' (default) | 'mmpp2'   (plan E7)
+    arrival_rate : float, optional
+        Long-run arrival rate in tasks/s (default n / 300).
+    arrival_seed : int, optional
+        Seed of the separate MMPP-2 stream.  Task types, CI values and
+        devices are identical across arrival processes and rates for the
+        same seed: only the timestamps change.
 
     Returns
     -------
@@ -219,9 +264,17 @@ def generate_synthetic_tasks(
         k=n,
     )
 
-    # Poisson timestamps
-    lam = n / 300.0
+    # Poisson timestamps (always drawn from rng, so the draws that follow are
+    # the same whatever the arrival process)
+    lam = n / 300.0 if arrival_rate is None else float(arrival_rate)
     timestamps = _poisson_timestamps(n, lam, rng)
+    if arrival_process == "mmpp2":
+        from src.config import MMPP2_RATE_MULTIPLIERS, MMPP2_SWITCH_PROBS
+        arng = random.Random(seed + 1 if arrival_seed is None else arrival_seed)
+        timestamps = _mmpp2_timestamps(n, lam, arng, MMPP2_RATE_MULTIPLIERS,
+                                       MMPP2_SWITCH_PROBS)
+    elif arrival_process != "poisson":
+        raise ValueError(f"unknown arrival_process {arrival_process!r}")
 
     tasks = []
     for i in range(n):

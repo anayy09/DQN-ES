@@ -56,6 +56,7 @@ from src.config import (
 )
 from src.core.task import HealthcareTask
 from src.simulation.episode_log import (
+    add_queue_metrics,
     add_steady_state,
     raw_log_path,
     write_raw_log,
@@ -106,6 +107,7 @@ def _run_single(alg_name, sched_cls, n_tasks, run_id, raw_dir=None,
         'throughput':        n_tasks / span,
     }
     add_steady_state(metrics, results)
+    add_queue_metrics(metrics, results)
 
     epsilon_history = getattr(sched, 'epsilon_history', None)
     return metrics, (list(epsilon_history) if epsilon_history else None)
@@ -158,7 +160,7 @@ def run_full(
                   else f'table_{registry_name[:3]}')
     metric_keys = ['avg_latency_ms', 'avg_energy_mj',
                    'avg_privacy_risk', 'sla_violation_pct', 'throughput',
-                   'avg_privacy_risk_ss']
+                   'avg_privacy_risk_ss', 'avg_queue_ms', 'edge_utilisation']
     raw_dir = (results_dir / 'raw' / prefix) if raw_logs else None
 
     mc_raw:     Dict[int, Dict[str, list]] = defaultdict(lambda: defaultdict(list))
@@ -332,6 +334,11 @@ def main():
     parser.add_argument('--ecg-payload-bits', type=int, default=None,
                         help='Override ECG D_i (sensitivity; config '
                              'ECG_PAYLOAD_SENSITIVITY_BITS = 80000 = 10 KB)')
+    parser.add_argument('--arrival', choices=['poisson', 'mmpp2'],
+                        default='poisson', help='Arrival process (E7)')
+    parser.add_argument('--load-rho', type=float, default=None,
+                        help='Target offered edge utilisation (E7), sets the '
+                             'absolute arrival rate')
     parser.add_argument('--result-size-bits', type=int, default=None,
                         help='Override result size S_res (sensitivity; '
                              'config RESULT_SIZE_SENSITIVITY_BITS)')
@@ -343,7 +350,10 @@ def main():
     script_dir = Path(__file__).resolve().parent
     project_root = script_dir.parent.parent.parent
     overrides = {'ecg_payload_bits': args.ecg_payload_bits,
-                 'result_size_bits': args.result_size_bits}
+                 'result_size_bits': args.result_size_bits,
+                 'arrival_process': (args.arrival if args.arrival != 'poisson'
+                                     else None),
+                 'load_rho': args.load_rho}
     overrides = {k: v for k, v in overrides.items() if v is not None} or None
     results_dir = (Path(args.output) if args.output
                    else project_root / 'results')

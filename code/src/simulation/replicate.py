@@ -37,7 +37,10 @@ def to_healthcare_task(t, topology: NetworkTopology) -> HealthcareTask:
     )
 
 
+# Per-task knobs (applied after generation) and workload knobs (applied at
+# generation).  Other condition keys (warm start, CI noise) are added below.
 TASK_OVERRIDE_KEYS = ('ecg_payload_bits', 'result_size_bits')
+WORKLOAD_KEYS = ('arrival_process', 'load_rho')
 
 
 def apply_task_overrides(tasks: List[HealthcareTask],
@@ -49,7 +52,7 @@ def apply_task_overrides(tasks: List[HealthcareTask],
     """
     if not overrides:
         return tasks
-    unknown = set(overrides) - set(TASK_OVERRIDE_KEYS)
+    unknown = set(overrides) - set(TASK_OVERRIDE_KEYS) - set(WORKLOAD_KEYS)
     if unknown:
         raise KeyError(f'unknown task overrides: {sorted(unknown)}')
     for t in tasks:
@@ -69,6 +72,10 @@ def overrides_tag(overrides: Optional[dict]) -> str:
         parts.append(f"ecg{int(overrides['ecg_payload_bits'])}")
     if overrides.get('result_size_bits') is not None:
         parts.append(f"res{int(overrides['result_size_bits'])}")
+    if overrides.get('arrival_process', 'poisson') != 'poisson':
+        parts.append(str(overrides['arrival_process']))
+    if overrides.get('load_rho') is not None:
+        parts.append(f"rho{overrides['load_rho']:g}")
     return '_'.join(parts)
 
 
@@ -95,8 +102,15 @@ def build_synthetic_replicate(
     seeds = replicate_seeds(run_id, n_tasks)
     seed_global_rngs(seeds['base'])
     topo = build_topology(run_id, n_tasks, n_wearables, n_fog_nodes)
-    sim_tasks = generate_synthetic_tasks(n_tasks, ci_distribution,
-                                         seed=seeds['task'])
+    ov = task_overrides or {}
+    rate = None
+    if ov.get('load_rho') is not None:
+        from src.data_ingestion.event_generator import arrival_rate_for_edge_load
+        rate = arrival_rate_for_edge_load(float(ov['load_rho']))
+    sim_tasks = generate_synthetic_tasks(
+        n_tasks, ci_distribution, seed=seeds['task'],
+        arrival_process=ov.get('arrival_process', 'poisson'),
+        arrival_rate=rate, arrival_seed=seeds['arrival'])
     tasks = [to_healthcare_task(t, topo) for t in sim_tasks]
     apply_task_overrides(tasks, task_overrides)
     return seeds, topo, tasks

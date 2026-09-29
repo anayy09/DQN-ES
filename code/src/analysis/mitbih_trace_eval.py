@@ -51,7 +51,12 @@ from src.config import (
 from src.core.task import HealthcareTask, TASK_PROFILES
 from src.data_ingestion.parse_mitbih import load_mitbih_events
 from src.simulation.environment import OffloadingEnvironment
-from src.simulation.episode_log import add_steady_state, raw_log_path, write_raw_log
+from src.simulation.episode_log import (
+    add_queue_metrics,
+    add_steady_state,
+    raw_log_path,
+    write_raw_log,
+)
 from src.simulation.replicate import (
     apply_task_overrides,
     build_topology,
@@ -137,6 +142,7 @@ def _run_cell(payload: tuple) -> tuple:
                                          for r in res) / len(res),
     }
     add_steady_state(metrics, res)
+    add_queue_metrics(metrics, res)
     metrics['run_id'] = run_id
     return alg_name, run_id, metrics, time.time() - t0
 
@@ -238,7 +244,8 @@ def run_mitbih_trace(
         row = {'algorithm': alg}
         agg = {}
         for k in ['avg_latency_ms', 'avg_energy_mj',
-                  'avg_privacy_risk', 'sla_violation_pct']:
+                  'avg_privacy_risk', 'sla_violation_pct',
+                  'avg_queue_ms', 'edge_utilisation']:
             vs = np.array([r[k] for r in runs], dtype=float)
             if len(vs) == 0:
                 agg[k] = {'mean': 0.0, 'std': 0.0, 'samples': []}
