@@ -340,12 +340,13 @@ class DQNESScheduler(BaseScheduler):
         # s_{t+1} is the state observed at this (the next) scheduling
         # decision.  The episode is one continuing stream, so done = False.
         t0 = _t()
+        td_loss = float('nan')
         if self._pending is not None:
             p_state, p_action, p_reward = self._pending
             self._replay.push(p_state, p_action, p_reward, state, False)
             self._pending = None
             if len(self._replay) >= self.batch_size:
-                self.update_policy(self.batch_size)
+                td_loss = self.update_policy(self.batch_size)
         t_update = _t() - t0
 
         eps_used = self.epsilon
@@ -379,6 +380,10 @@ class DQNESScheduler(BaseScheduler):
             't_forward_ms': self._last_forward_s * 1000.0,
             't_enum_ms': (t_end - t_enum0) * 1000.0,
             't_update_ms': t_update * 1000.0,
+            # E11: loss of the minibatch update made at this decision (NaN if
+            # none) and max Q of the online network at this state
+            'td_loss': float(td_loss),
+            'q_max': float(np.max(q_values)),
         }
 
         _, latency_s, energy_j, privacy_risk = self.evaluate_node(task, best_node_id, lat_bounds, eng_bounds)

@@ -32,7 +32,7 @@ import math
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional  # noqa: F401
 
 _CODE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
@@ -216,6 +216,119 @@ def _print_family(fam: str, rows: List[dict], scale: int) -> None:
         print(f"  {r['comparator']:<16} {r['metric']:<18} n={r['n_pairs']:<3d} "
               f"d={r['hl_diff']:+.4f} [{r['ci_lo']:+.4f}, {r['ci_hi']:+.4f}] "
               f"r={r['rank_biserial_r']:+.2f} p_holm={_fmt_p(r['p_holm'])}{tag}")
+
+
+# ---------------------------------------------------------------------------
+# D17(a): privacy excess at matched latency (E2 / E3 primary statistic)
+# ---------------------------------------------------------------------------
+
+def matched_latency_excess(cell: Dict[str, dict], reference: str,
+                           frontier_arms: List[str], x_metric: str,
+                           y_metric: str) -> dict:
+    """
+    Per replicate r: interpolate the frontier's y at the reference's x (points
+    sorted by x, equal-x points averaged); excess_r = y_ref - y_frontier.
+    Replicates whose reference x lies outside the frontier's x range, or
+    with fewer than two frontier points, are excluded (no extrapolation).
+    """
+    import numpy as np
+    if reference not in cell or y_metric not in cell[reference]:
+        return {'status': 'missing reference'}
+    ref_x = samples_by_run(cell[reference][x_metric])
+    ref_y = samples_by_run(cell[reference][y_metric])
+    arms = [a for a in frontier_arms if a in cell and y_metric in cell[a]]
+    fx = {a: samples_by_run(cell[a][x_metric]) for a in arms}
+    fy = {a: samples_by_run(cell[a][y_metric]) for a in arms}
+    excess, excluded = {}, []
+    for r in sorted(set(ref_x) & set(ref_y)):
+        pts = {}
+        for a in arms:
+            if r in fx[a] and r in fy[a]:
+                pts.setdefault(fx[a][r], []).append(fy[a][r])
+        if len(pts) < 2:
+            excluded.append(r)
+            continue
+        xs = np.array(sorted(pts))
+        ys = np.array([np.mean(pts[x]) for x in xs])
+        x0 = ref_x[r]
+        if x0 < xs[0] or x0 > xs[-1]:
+            excluded.append(r)
+            continue
+        excess[r] = float(ref_y[r] - np.interp(x0, xs, ys))
+    return {'status': 'ok', 'arms_used': arms, 'excess_by_run': excess,
+            'excluded_runs': excluded}
+
+
+def median_bootstrap_ci(values, n_boot: int, level: float, seed: int):
+    """Percentile CI of the median, resampling replicates (eval_stats)."""
+    import numpy as np
+    from src.analysis.eval_stats import multinomial_weights, percentile_ci
+    v = np.asarray(values, dtype=float)
+    if v.size == 0:
+        return float('nan'), float('nan')
+    if v.size == 1:
+        return float(v[0]), float(v[0])
+    W = multinomial_weights(v.size, n_boot, np.random.default_rng(seed)).astype(int)
+    meds = np.array([np.median(np.repeat(v, w)) for w in W])
+    return percentile_ci(meds, 1.0 - level)
+
+
+def run_matched_latency(main_summary: Path, extra_summaries: Iterable[Path],
+                        out_dir: Path, scale: Optional[int] = None,
+                        n_boot: int = STAT_BOOT_N) -> List[dict]:
+    """D17(a) for every frontier x y-metric declared in config.MATCHED_LATENCY."""
+    import numpy as np
+    from src.config import MATCHED_LATENCY as ML
+    scale = ML['scale'] if scale is None else scale
+    cell = _load_cells([main_summary, *extra_summaries], scale)
+    rows = []
+    for fname, arms in ML['frontiers'].items():
+        for y in ML['y_metrics']:
+            res = matched_latency_excess(cell, ML['reference'], arms,
+                                         ML['x_metric'], y)
+            row = {'frontier': fname, 'y_metric': y, 'scale': scale,
+                   'reference': ML['reference'], 'status': res['status']}
+            if res['status'] == 'ok':
+                ex = list(res['excess_by_run'].values())
+                lo, hi = median_bootstrap_ci(ex, n_boot, STAT_CI_LEVEL,
+                                             STAT_BOOT_SEED + len(rows))
+                row.update(n_replicates=len(ex), n_excluded=len(res['excluded_runs']),
+                           median_excess=float(np.median(ex)) if ex else float('nan'),
+                           ci_lo=lo, ci_hi=hi,
+                           arms_used=';'.join(res['arms_used']),
+                           excluded_runs=';'.join(map(str, res['excluded_runs'])))
+            rows.append(row)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / 'matched_latency.csv'
+    fields = ['frontier', 'y_metric', 'scale', 'reference', 'status',
+              'n_replicates', 'n_excluded', 'median_excess', 'ci_lo', 'ci_hi',
+              'arms_used', 'excluded_runs']
+    with open(path, 'w', newline='', encoding='utf-8') as fh:
+        wr = csv.DictWriter(fh, fieldnames=fields, restval='')
+        wr.writeheader()
+        wr.writerows(rows)
+    print(f'[STAT] matched-latency privacy excess (D17a), N={scale}:')
+    for r in rows:
+        if r['status'] == 'ok' and r.get('n_replicates'):
+            print(f"  {r['frontier']:<9} {r['y_metric']:<20} median "
+                  f"{r['median_excess']:+.4f} [{r['ci_lo']:+.4f}, {r['ci_hi']:+.4f}] "
+                  f"n={r['n_replicates']} excluded={r['n_excluded']}")
+        else:
+            print(f"  {r['frontier']:<9} {r['y_metric']:<20} {r['status']} "
+                  f"(n={r.get('n_replicates', 0)}, excluded={r.get('n_excluded', '-')})")
+    print(f'[STAT] Saved {path}')
+    return rows
+
+
+def run_privacy_inference(auc_json: Path, out_dir: Path,
+                          n_boot: int = STAT_BOOT_N) -> List[dict]:
+    """D17(b): family 'privacy_inference' on per-test-replicate adversary AUC."""
+    doc = json.loads(Path(auc_json).read_text(encoding='utf-8'))
+    rows = run_family_tests(doc['cells'], 'privacy_inference', n_boot=n_boot)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _write_rows(rows, out_dir / 'stat_tests_privacy_inference.csv')
+    _print_family('privacy_inference', rows, 0)
+    return rows
 
 
 def main():

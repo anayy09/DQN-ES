@@ -42,7 +42,7 @@ RAW_LOG_COLUMNS = [
     'energy_mj', 'energy_tx_mj', 'energy_idle_mj', 'energy_rx_mj',
     'energy_compute_mj', 'privacy_risk', 'sla_violated',
     'scheduling_overhead_ms', 't_bounds_ms', 't_forward_ms', 't_enum_ms',
-    't_update_ms',
+    't_update_ms', 'td_loss', 'q_max',
 ]
 
 

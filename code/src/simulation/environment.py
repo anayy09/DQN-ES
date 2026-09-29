@@ -237,6 +237,8 @@ class OffloadingEnvironment:
             't_forward_ms':        info.get('t_forward_ms'),
             't_enum_ms':           info.get('t_enum_ms'),
             't_update_ms':         info.get('t_update_ms'),
+            'td_loss':             info.get('td_loss'),
+            'q_max':               info.get('q_max'),
         }
 
     # ------------------------------------------------------------------

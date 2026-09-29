@@ -297,6 +297,21 @@ STAT_FAMILIES: dict = {
     },
 }
 
+# E5 adversary (analysis/e5_adversary.py).  Primary configuration for the
+# 'privacy_inference' family, declared before the freeze: HistGradientBoosting
+# on all observables (destinations + timing + size), non-overlapping
+# 50-task windows per device, label = majority CI tier is 'high', train on
+# replicates 0-19 and test on 20-29 (replicate-disjoint); the unit is the
+# per-test-replicate AUC.
+E5_ADVERSARY: dict = {
+    'window':             50,
+    'train_runs':         list(range(0, 20)),
+    'test_runs':          list(range(20, 30)),
+    'primary_features':   'dest+timing+size',
+    'primary_classifier': 'hgb',
+    'seed':               GLOBAL_SEED,
+}
+
 # D17(a): E2/E3 primary statistic, "privacy excess at matched latency".
 # Per replicate r: sort the frontier's points (latency_r, R_P_r) by latency,
 # interpolate R_P linearly at DQN-ES's latency_r, and take
