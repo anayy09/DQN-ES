@@ -211,6 +211,8 @@ def run_full(
                         'samples': [float(v) for v in vals],
                         'run_ids': [int(r['run_id']) for r in runs],
                     }
+                elif key == 'avg_privacy_risk_ss':
+                    continue   # undefined: no device passed the W-decision warm-up
                 else:
                     agg[key] = {'mean': 0.0, 'std': 0.0, 'min': 0.0,
                                 'max': 0.0, 'n': 0, 'samples': [],
