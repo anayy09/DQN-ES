@@ -117,9 +117,13 @@ class NetworkTopology:
         src_id: int,
         dst_id: int,
         channel_noise_dbm: float = -100.0,
+        gain: float = 1.0,
     ) -> float:
         """
         Shannon capacity R = B Â· log2(1 + SNR)  [bits/s]
+
+        gain: fading power gain multiplying the received SNR (1 = mean
+        channel; E7b Rayleigh block fading draws it per task).
 
         Path-loss channel model:
             h = h_0 Â· (d_0 / d)^Î±
@@ -147,7 +151,7 @@ class NetworkTopology:
             snr = 1000.0
             return B * math.log2(1.0 + snr)
 
-        return self._shannon_rate(p_tx, B, link, channel_noise_dbm)
+        return self._shannon_rate(p_tx * gain, B, link, channel_noise_dbm)
 
     @staticmethod
     def _shannon_rate(
@@ -180,6 +184,7 @@ class NetworkTopology:
         node_id: int,
         tx_power_w: float,
         channel_noise_dbm: float = -100.0,
+        gain: float = 1.0,
     ) -> float:
         """
         Result-return rate node -> wearable, from the same channel model as
@@ -190,7 +195,7 @@ class NetworkTopology:
         """
         wearable = self.get_node(device_id)
         link = self.get_link(device_id, node_id)
-        return self._shannon_rate(tx_power_w, wearable.hardware.bandwidth_hz,
+        return self._shannon_rate(tx_power_w * gain, wearable.hardware.bandwidth_hz,
                                   link, channel_noise_dbm)
 
     # ------------------------------------------------------------------

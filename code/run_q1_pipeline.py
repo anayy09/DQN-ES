@@ -17,6 +17,7 @@ Steps (skip flags in brackets):
   result_size_*        E9 sweep 1/4/16/64 KB                         [--skip-sensitivity]
   scaling_M*           E4 fog-node counts 8/16/32                    [--skip-scaling]
   workload_*           E7 load targets and MMPP-2                    [--skip-workload]
+  channel_*            E7b Rayleigh fading and ARQ packet loss       [--skip-channel]
   warm_start_*         E12 N_pre 500/2000                            [--skip-warm]
   ci_noise_*           E14 Gaussian sigma and misclassification      [--skip-cinoise]
   weight_mixed         weight-scheme ablation, mixed CI              [--skip-weight]
@@ -153,6 +154,16 @@ def build_steps(args, results_dir: Path, figures_dir: Path, data_dir: Path) -> l
                         Path('sensitivity') / overrides_tag(cond), 'all',
                         ROBUSTNESS_ARMS, [primary], cond, desc='E14 CI noise'))
 
+    from src.config import PACKET_LOSS_SWEEP
+    channel = ([{'fading': 'rayleigh'}]
+               + [{'packet_loss': p} for p in PACKET_LOSS_SWEEP]
+               + [{'fading': 'rayleigh', 'packet_loss': max(PACKET_LOSS_SWEEP)}])
+    for cond in channel:
+        steps.append(mc(f'channel_{overrides_tag(cond)}', args.skip_channel,
+                        Path('sensitivity') / overrides_tag(cond), 'all',
+                        ROBUSTNESS_ARMS, [primary], cond,
+                        desc='E7b fading / ARQ (Tier 3)'))
+
     def weight(ci):
         def run():
             from src.analysis.weight_ablation import run_ablation
@@ -274,7 +285,7 @@ def main():
     p.add_argument('--declare-only', action='store_true',
                    help='Write declared_arms.json and exit')
     for flag in ('mc', 'experiments', 'stats', 'sensitivity', 'scaling',
-                 'workload', 'warm', 'cinoise', 'weight', 'highci', 'mitbih',
+                 'workload', 'channel', 'warm', 'cinoise', 'weight', 'highci', 'mitbih',
                  'privacy', 'overhead', 'decomp', 'routing', 'checks', 'figures'):
         p.add_argument(f'--skip-{flag}', action='store_true')
     args = p.parse_args()

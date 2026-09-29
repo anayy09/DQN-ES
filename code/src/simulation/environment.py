@@ -146,7 +146,8 @@ class OffloadingEnvironment:
         # --- Latency / energy with component breakdown (core/offload_model) ---
         # Latency is capped at 999 s (overloaded queue) before the idle-energy
         # term is computed, as in round 1.
-        out = offload_outcome(self.topology, task, node_id, latency_cap_s=999.0)
+        out = offload_outcome(self.topology, task, node_id, latency_cap_s=999.0,
+                              realised=True)
         latency_s = out.latency_s
         energy_j = max(0.0, out.energy_j)
         lat_tx_s, lat_prop_s = out.t_tx, out.t_prop
