@@ -52,7 +52,12 @@ from src.core.task import HealthcareTask, TASK_PROFILES
 from src.data_ingestion.parse_mitbih import load_mitbih_events
 from src.simulation.environment import OffloadingEnvironment
 from src.simulation.episode_log import add_steady_state, raw_log_path, write_raw_log
-from src.simulation.replicate import build_topology, run_scheduler
+from src.simulation.replicate import (
+    apply_task_overrides,
+    build_topology,
+    overrides_tag,
+    run_scheduler,
+)
 
 
 # =========================================================================
@@ -104,7 +109,7 @@ def _run_cell(payload: tuple) -> tuple:
     Returns (alg_name, run_id, metrics_dict_or_None, elapsed_seconds).
     """
     import random as _r
-    alg_name, run_id, raw_dir = payload
+    alg_name, run_id, raw_dir, overrides = payload
     t0 = time.time()
 
     seeds = replicate_seeds(run_id, 0)
@@ -113,6 +118,7 @@ def _run_cell(payload: tuple) -> tuple:
 
     topo = build_topology(run_id, 0)
     tasks = _events_to_tasks(_WORKER_EVENTS, topo, local_rng)
+    apply_task_overrides(tasks, overrides)
 
     registry = get_registry('all')
     res, _ = run_scheduler(registry[alg_name], topo, tasks, seeds)
@@ -146,6 +152,7 @@ def run_mitbih_trace(
     max_tasks: int | None = None,
     algorithms: list | None = None,
     raw_logs: bool = True,
+    task_overrides: dict | None = None,
 ) -> dict:
     """
     Run the MIT-BIH trace evaluation in parallel.
@@ -187,7 +194,8 @@ def run_mitbih_trace(
         print(f'[MIT-BIH] Truncated to {len(events)} tasks (max_tasks).')
 
     raw_dir = (results_dir / 'raw' / 'mitbih') if raw_logs else None
-    payloads = [(alg, rid, raw_dir) for alg in alg_names for rid in range(n_runs)]
+    payloads = [(alg, rid, raw_dir, task_overrides)
+                for alg in alg_names for rid in range(n_runs)]
     n_jobs = len(payloads)
 
     if workers is None:
@@ -294,6 +302,10 @@ def main():
                    help='1-run smoke test (truncates trace to verify pipeline)')
     p.add_argument('--max-tasks',   type=int, default=None,
                    help='Cap trace length (e.g., 200 for fast verification)')
+    p.add_argument('--ecg-payload-bits', type=int, default=None,
+                   help='Override the ECG payload (10 KB sensitivity = 80000)')
+    p.add_argument('--result-size-bits', type=int, default=None,
+                   help='Override the result size S_res')
     p.add_argument('--algorithms', nargs='+', default=None,
                    help='Registry names (main or experiment registry); '
                         'default = the 9 main algorithms')
@@ -303,6 +315,11 @@ def main():
     project_root = script_dir.parent.parent.parent
     data_dir     = Path(args.data_dir)    if args.data_dir    else project_root / 'data'
     results_dir  = Path(args.results_dir) if args.results_dir else project_root / 'results'
+    overrides = {'ecg_payload_bits': args.ecg_payload_bits,
+                 'result_size_bits': args.result_size_bits}
+    overrides = {k: v for k, v in overrides.items() if v is not None} or None
+    if overrides and not args.results_dir:
+        results_dir = results_dir / 'sensitivity' / overrides_tag(overrides)
 
     run_mitbih_trace(
         data_dir, results_dir,
@@ -311,6 +328,7 @@ def main():
         smoke=args.smoke,
         max_tasks=args.max_tasks,
         algorithms=args.algorithms,
+        task_overrides=overrides,
     )
 
 

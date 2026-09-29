@@ -146,6 +146,17 @@ def ci_tier(ci: float) -> str:
 
 
 # ---------------------------------------------------------------------------
+# ECG payload  (D15; single source for core/task.py TASK_PROFILES, the
+# synthetic generator and the MIT-BIH trace)
+# ---------------------------------------------------------------------------
+# Main configuration: a heavy 5 MB (SI) payload per ECG analysis task.
+# Sensitivity: 10 KB, the order of one raw 10 s, 360 Hz MIT-BIH window
+# (2 leads x 11 bit x 3600 samples ~ 9.9 KB).
+ECG_PAYLOAD_BITS:             int = 40_000_000     # 5 MB
+ECG_PAYLOAD_SENSITIVITY_BITS: int = 80_000         # 10 KB
+
+
+# ---------------------------------------------------------------------------
 # Result return / downlink  (plan E9, D7; core/offload_model.py)
 # ---------------------------------------------------------------------------
 # Every offloaded task returns a result (class label, confidence, timestamp)
@@ -195,9 +206,10 @@ PRIVACY_ENTROPY_THRESHOLD: float = 0.85
 # Real-trace evaluation (Fix 10)
 # ---------------------------------------------------------------------------
 MITBIH_N_RUNS:       int   = 30
-MITBIH_PAYLOAD_BITS: int   = int(5 * 1024 * 1024 * 8)  # 5 MB — matches main simulation ECG task profile
+MITBIH_PAYLOAD_BITS: int   = None  # set below to ECG_PAYLOAD_BITS (single source, D15)
 MITBIH_DEADLINE_S:   float = 0.500                   # 500 ms ECG SLA (matches paper's stated SLA)
 MITBIH_RHO:          float = 0.9
+MITBIH_PAYLOAD_BITS = ECG_PAYLOAD_BITS
 
 
 # ---------------------------------------------------------------------------

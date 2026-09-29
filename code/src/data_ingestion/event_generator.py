@@ -26,51 +26,10 @@ from typing import List, Optional
 
 
 # ---------------------------------------------------------------------------
-# Task-type parameter profiles
-# (identical to parse_mendeley to keep a single source of truth for the
-#  simulation; they are repeated here so event_generator is self-contained)
+# Task-type parameter profiles: single source in src/core/task.py
+# (ECG payload from src.config.ECG_PAYLOAD_BITS).
 # ---------------------------------------------------------------------------
-# Cycle counts updated to realistic MCU-class workloads measured on
-# Cortex-M / ESP32-S3 in published TinyML benchmarks (Liu 2020; Zhang 2021;
-# Banbury 2021 MLPerf-Tiny).  Earlier values (12 M cycles for ECG CNN) were
-# underestimates and caused all local-execution tasks to meet their deadlines
-# on a 240 MHz wearable, yielding the spurious 0.00 % SLA violation count
-# in earlier Table III drafts.
-TASK_PROFILES = {
-    "ecg_analysis": {
-        # Pan-Tompkins QRS detection + 8-layer CNN arrhythmia classifier
-        # on a 10 s ECG window.  ~150 M cycles measured on Cortex-M4 @ 80 MHz
-        # (Zhang et al., 2021); on ESP32-S3 @ 240 MHz this maps to ~625 ms,
-        # exceeding the 500 ms real-time arrhythmia-alarm deadline.
-        "data_size_bits": 40_000_000,   # 5 MB raw window
-        "cpu_cycles":     150_000_000,
-        "max_delay_s":    0.5,
-        "privacy_sensitivity": 0.9,
-    },
-    "spo2_monitoring": {
-        # Beer-Lambert AC/DC ratio + median filter; very lightweight.
-        # ~5 M cycles -> 21 ms locally; passes 2 s deadline.
-        "data_size_bits": 40_000,
-        "cpu_cycles":     5_000_000,
-        "max_delay_s":    2.0,
-        "privacy_sensitivity": 0.6,
-    },
-    "bp_analysis": {
-        # Cuffless PPG feature extraction + GBM regression (~30 M cycles).
-        "data_size_bits": 400_000,
-        "cpu_cycles":     30_000_000,
-        "max_delay_s":    1.0,
-        "privacy_sensitivity": 0.8,
-    },
-    "multi_vital": {
-        # ECG + SpO2 + BP fusion pipeline (~120 M cycles).
-        # On ESP32-S3 @ 240 MHz -> 500 ms; tight against 800 ms deadline.
-        "data_size_bits": 8_000_000,
-        "cpu_cycles":     120_000_000,
-        "max_delay_s":    0.8,
-        "privacy_sensitivity": 0.85,
-    },
-}
+from src.core.task import TASK_PROFILES  # noqa: E402
 
 # Task-type proportions for synthetic generation
 TASK_TYPE_WEIGHTS = {
@@ -171,16 +130,17 @@ def _task_from_mitbih(event: dict,
     # Scale CPU cycles from the event; data payload fixed for ECG.
     # Default updated to 150 M cycles to match realistic CNN inference on
     # a Cortex-M / ESP32-class wearable (see TASK_PROFILES['ecg_analysis']).
-    cpu = int(event.get("cpu_cycles_ecg_inference", 150_000_000))
+    profile = TASK_PROFILES["ecg_analysis"]
+    cpu = int(event.get("cpu_cycles_ecg_inference", profile["cpu_cycles"]))
     return SimulationTask(
         task_id             = task_id,
         device_id           = device_id,
         timestamp           = timestamp,
         ci_score            = ci,
-        data_size_bits      = 40_000_000,   # 5 MB (full ECG window)
+        data_size_bits      = profile["data_size_bits"],
         cpu_cycles          = cpu,
-        max_delay_s         = 0.5,
-        privacy_sensitivity = 0.9,
+        max_delay_s         = profile["max_delay_s"],
+        privacy_sensitivity = profile["privacy_sensitivity"],
         source              = "mitbih",
         attack_probability  = attack_prob,
         task_type           = "ecg_analysis",

@@ -47,9 +47,11 @@ D0_M         = 1.0
 ALPHA        = 3.0              # indoor path-loss exponent
 
 # ECG task (dominant workload in paper)
-ECG_BITS     = int(7.2 * 1024 * 8)  # 7.2 KB × 8 = 58,982 bits
-ECG_CYCLES   = 150_000_000          # 150 M cycles
-ECG_DEADLINE = 0.150               # 150 ms SLA
+from src.core.task import TASK_PROFILES as _TP  # noqa: E402
+# Single source (core/task.py, D15)
+ECG_BITS     = _TP['ecg_analysis']['data_size_bits']
+ECG_CYCLES   = _TP['ecg_analysis']['cpu_cycles']
+ECG_DEADLINE = _TP['ecg_analysis']['max_delay_s']
 
 # Queue parameters (M/M/1, low-load setting)
 LAMBDA_EDGE = 5.0     # arrival rate tasks/s

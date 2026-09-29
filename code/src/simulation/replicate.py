@@ -37,6 +37,41 @@ def to_healthcare_task(t, topology: NetworkTopology) -> HealthcareTask:
     )
 
 
+TASK_OVERRIDE_KEYS = ('ecg_payload_bits', 'result_size_bits')
+
+
+def apply_task_overrides(tasks: List[HealthcareTask],
+                         overrides: Optional[dict]) -> List[HealthcareTask]:
+    """
+    Sensitivity knobs applied to a built task list (in place):
+      ecg_payload_bits   D_i of every ECG task (D15: 10 KB sensitivity)
+      result_size_bits   result returned to the wearable (E9: 1-64 KB)
+    """
+    if not overrides:
+        return tasks
+    unknown = set(overrides) - set(TASK_OVERRIDE_KEYS)
+    if unknown:
+        raise KeyError(f'unknown task overrides: {sorted(unknown)}')
+    for t in tasks:
+        if overrides.get('ecg_payload_bits') is not None and t.task_type == 'ecg_analysis':
+            t.data_size_bits = int(overrides['ecg_payload_bits'])
+        if overrides.get('result_size_bits') is not None:
+            t.result_size_bits = int(overrides['result_size_bits'])
+    return tasks
+
+
+def overrides_tag(overrides: Optional[dict]) -> str:
+    """Short label for output paths, e.g. 'ecg80000_res8000'."""
+    if not overrides:
+        return ''
+    parts = []
+    if overrides.get('ecg_payload_bits') is not None:
+        parts.append(f"ecg{int(overrides['ecg_payload_bits'])}")
+    if overrides.get('result_size_bits') is not None:
+        parts.append(f"res{int(overrides['result_size_bits'])}")
+    return '_'.join(parts)
+
+
 def build_topology(run_id: int, n_tasks: int = 0,
                    n_wearables: int = N_WEARABLES,
                    n_fog_nodes: int = N_FOG_NODES) -> NetworkTopology:
@@ -53,6 +88,7 @@ def build_synthetic_replicate(
     ci_distribution: str = 'mixed',
     n_wearables: int = N_WEARABLES,
     n_fog_nodes: int = N_FOG_NODES,
+    task_overrides: Optional[dict] = None,
 ) -> Tuple[dict, NetworkTopology, List[HealthcareTask]]:
     """Seeds, per-replicate topology and synthetic task stream."""
     from src.data_ingestion.event_generator import generate_synthetic_tasks
@@ -62,6 +98,7 @@ def build_synthetic_replicate(
     sim_tasks = generate_synthetic_tasks(n_tasks, ci_distribution,
                                          seed=seeds['task'])
     tasks = [to_healthcare_task(t, topo) for t in sim_tasks]
+    apply_task_overrides(tasks, task_overrides)
     return seeds, topo, tasks
 
 
