@@ -45,6 +45,8 @@ class BaseScheduler(ABC):
         offload_history: Optional[Dict] = None,
     ):
         self.topology = topology
+        # lambda_P: privacy-weight scale applied in evaluate_node (plan E3).
+        self.privacy_weight_scale: float = 1.0
         # FIX C6: use deque(maxlen=WINDOW_SIZE) per device for sliding-window entropy.
         # Accept either legacy dict-of-counts or new deque format.
         self.offload_history: Dict[int, deque] = {}
@@ -147,6 +149,7 @@ class BaseScheduler(ABC):
             task.ci_score,
             latency_bounds,
             energy_bounds,
+            privacy_scale=self.privacy_weight_scale,
         )
 
         return cost, latency_s, energy_j, privacy_risk

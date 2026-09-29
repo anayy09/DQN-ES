@@ -322,6 +322,7 @@ def compute_cost(
     ci: float,
     latency_bounds: Tuple[float, float],
     energy_bounds: Tuple[float, float],
+    privacy_scale: float = 1.0,
 ) -> float:
     """
     Full normalised multi-objective cost:
@@ -338,12 +339,20 @@ def compute_cost(
     ci              : float — Criticality Index Φ ∈ [0, 1]
     latency_bounds  : (l_min, l_max) in seconds
     energy_bounds   : (e_min, e_max) in joules
+    privacy_scale   : float — lambda_P; the privacy weight is multiplied by
+                      lambda_P and the three weights renormalised to sum 1
+                      (reweighted-greedy frontier, plan E3).  1 = default.
 
     Returns
     -------
     Scalar cost F(x) ∈ [0, 1] (approximately).
     """
     we, wl, wp = compute_normalized_weights(ci)
+    if privacy_scale != 1.0:
+        wp = wp * privacy_scale
+        total = we + wl + wp
+        if total > 1e-12:
+            we, wl, wp = we / total, wl / total, wp / total
 
     l_min, l_max = latency_bounds
     e_min, e_max = energy_bounds

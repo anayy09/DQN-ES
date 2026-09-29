@@ -44,6 +44,7 @@ from src.config import (
     N_FOG_NODES,
     N_WEARABLES,
     get_full_algorithm_registry,
+    get_registry,
     replicate_seeds,
     seed_global_rngs,
 )
@@ -112,7 +113,7 @@ def _run_cell(payload: tuple) -> tuple:
     topo = build_topology(run_id, 0)
     tasks = _events_to_tasks(_WORKER_EVENTS, topo, local_rng)
 
-    registry = get_full_algorithm_registry()
+    registry = get_registry('all')
     res, _ = run_scheduler(registry[alg_name], topo, tasks, seeds)
 
     if not res:
@@ -138,6 +139,7 @@ def run_mitbih_trace(
     workers: int | None = None,
     smoke: bool = False,
     max_tasks: int | None = None,
+    algorithms: list | None = None,
 ) -> dict:
     """
     Run the MIT-BIH trace evaluation in parallel.
@@ -162,7 +164,10 @@ def run_mitbih_trace(
     print(f'[MIT-BIH] Loaded {len(events)} window events.')
 
     registry = get_full_algorithm_registry()
-    alg_names = list(registry.keys())
+    alg_names = list(algorithms) if algorithms else list(registry.keys())
+    unknown = [a for a in alg_names if a not in get_registry('all')]
+    if unknown:
+        raise KeyError(f'unknown algorithms: {unknown}')
 
     if smoke:
         n_runs = 1
@@ -244,14 +249,14 @@ def run_mitbih_trace(
 
     print(f'\n[MIT-BIH] Real-trace results '
           f'(n_tasks={len(events)}, runs={n_runs}):')
-    hdr = (f"  {'Algorithm':<12s} {'Lat(ms)':>10s} {'Eng(mJ)':>10s} "
+    hdr = (f"  {'Algorithm':<18s} {'Lat(ms)':>10s} {'Eng(mJ)':>10s} "
            f"{'Priv':>8s} {'SLA%':>8s}")
     print(hdr)
     print('  ' + '-' * (len(hdr) - 2))
     for alg in alg_names:
         s = summary[alg]
         tag = '*' if alg == 'DQN-ES' else ' '
-        print(f'  {alg+tag:<12s} '
+        print(f'  {alg+tag:<18s} '
               f'{s["avg_latency_ms"]["mean"]:>10.2f} '
               f'{s["avg_energy_mj"]["mean"]:>10.4f} '
               f'{s["avg_privacy_risk"]["mean"]:>8.4f} '
@@ -272,6 +277,9 @@ def main():
                    help='1-run smoke test (truncates trace to verify pipeline)')
     p.add_argument('--max-tasks',   type=int, default=None,
                    help='Cap trace length (e.g., 200 for fast verification)')
+    p.add_argument('--algorithms', nargs='+', default=None,
+                   help='Registry names (main or experiment registry); '
+                        'default = the 9 main algorithms')
     args = p.parse_args()
 
     script_dir   = Path(__file__).resolve().parent
@@ -285,6 +293,7 @@ def main():
         workers=args.workers,
         smoke=args.smoke,
         max_tasks=args.max_tasks,
+        algorithms=args.algorithms,
     )
 
 

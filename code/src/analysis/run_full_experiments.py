@@ -52,6 +52,7 @@ from src.config import (
     PRIMARY_SCALE,
     TASK_SCALES,
     get_full_algorithm_registry,
+    get_registry,
 )
 from src.core.task import HealthcareTask
 from src.simulation.replicate import (
@@ -112,11 +113,28 @@ def run_full(
     n_runs: int,
     results_dir: Path,
     workers: int = None,
+    registry_name: str = 'main',
+    algorithms: list[str] | None = None,
 ) -> Dict:
+    """
+    registry_name 'main' writes mc_full_*.json and table3_n{N}.csv;
+    'experiments' / 'all' write mc_exp_* / mc_all_* and table_exp_n{N}.csv
+    so the main-comparison files are never overwritten by decomposition arms.
+    `algorithms` restricts the run to a subset of the registry.
+    """
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    registry = get_full_algorithm_registry()
+    registry = get_registry(registry_name)
+    if algorithms:
+        missing = [a for a in algorithms if a not in registry]
+        if missing:
+            raise KeyError(f'not in registry {registry_name!r}: {missing}')
+        registry = {a: registry[a] for a in algorithms}
     alg_names = list(registry.keys())
+    prefix = {'main': 'mc_full', 'experiments': 'mc_exp',
+              'all': 'mc_all'}[registry_name]
+    table_name = ('table3' if registry_name == 'main'
+                  else f'table_{registry_name[:3]}')
     metric_keys = ['avg_latency_ms', 'avg_energy_mj',
                    'avg_privacy_risk', 'sla_violation_pct', 'throughput']
 
@@ -181,10 +199,10 @@ def run_full(
     print(f'\n[Q1-MC] Total wall time: {elapsed:.1f}s')
 
     # Persist
-    _save_json(mc_raw,     results_dir / 'mc_full_results.json')
-    _save_json(mc_summary, results_dir / 'mc_full_summary.json')
+    _save_json(mc_raw,     results_dir / f'{prefix}_results.json')
+    _save_json(mc_summary, results_dir / f'{prefix}_summary.json')
 
-    if eps_trajectories:
+    if eps_trajectories and registry_name == 'main':
         _save_json(eps_trajectories,
                    results_dir / 'epsilon_trajectory.json')
         print(f'[Q1-MC] Captured epsilon trajectories for '
@@ -192,12 +210,12 @@ def run_full(
 
     # Table III CSV at primary scale
     _save_table3_csv(mc_summary, alg_names,
-                     results_dir / f'table3_n{PRIMARY_SCALE}.csv')
+                     results_dir / f'{table_name}_n{PRIMARY_SCALE}.csv')
     return mc_summary
 
 
 def _print_table(n_tasks, scale, alg_names):
-    hdr = (f"{'Algorithm':<12} {'Lat ms':>10} {'Eng mJ':>10} "
+    hdr = (f"{'Algorithm':<18} {'Lat ms':>10} {'Eng mJ':>10} "
            f"{'Priv':>8} {'SLA%':>8} {'Tput':>10}")
     print(f'  {hdr}\n  {"-"*len(hdr)}')
     for alg in alg_names:
@@ -208,7 +226,7 @@ def _print_table(n_tasks, scale, alg_names):
         sla = d.get('sla_violation_pct', {}).get('mean', 0)
         thr = d.get('throughput', {}).get('mean', 0)
         tag = '*' if alg == 'DQN-ES' else ' '
-        print(f'  {alg+tag:<12} {lat:>10.2f} {eng:>10.4f} '
+        print(f'  {alg+tag:<18} {lat:>10.2f} {eng:>10.4f} '
               f'{prv:>8.4f} {sla:>8.2f} {thr:>10.1f}')
 
 
@@ -271,6 +289,14 @@ def main():
                         help='Override results directory')
     parser.add_argument('--quick', action='store_true',
                         help='5 runs only — debug, not for publication')
+    parser.add_argument('--registry', choices=['main', 'experiments', 'all'],
+                        default='main',
+                        help='main = 9-algorithm comparison; experiments = '
+                             'E1-E3 decomposition arms (K-sweep, Random-K, '
+                             'q-mixed, Static-Tier, lambda_P)')
+    parser.add_argument('--algorithms', nargs='+', default=None,
+                        help='Restrict to these registry names')
+    parser.add_argument('--workers', type=int, default=None)
     args = parser.parse_args()
 
     n_runs = 5 if args.quick else args.n_runs
@@ -281,7 +307,8 @@ def main():
     results_dir = (Path(args.output) if args.output
                    else project_root / 'results')
 
-    run_full(scales, n_runs, results_dir)
+    run_full(scales, n_runs, results_dir, workers=args.workers,
+             registry_name=args.registry, algorithms=args.algorithms)
 
 
 if __name__ == '__main__':

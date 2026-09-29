@@ -107,7 +107,19 @@ DQN_TARGET_SYNC:     int   = 50              # steps between target-net updates
 BBO_POP:             int   = 20
 BBO_MAX_ITER:        int   = 30
 BBO_DELTA0:          float = 1.0
-BBO_TOP_K:           int   = 3               # DQN top-K pre-filter (Algorithm 1, line 3)
+# DQN top-K candidate set.  K ranges over 1..(M+2) network destinations
+# (edge, M fog nodes, cloud); local execution is not an action.
+DQN_TOP_K:           int   = 3
+BBO_TOP_K:           int   = DQN_TOP_K       # legacy name
+
+
+# ---------------------------------------------------------------------------
+# Decomposition experiments (plan E1-E3; experiment registry below)
+# ---------------------------------------------------------------------------
+K_SWEEP:             list[int]   = [1, 2, 3, 4, 5]                   # E1 DQN-ES K-sweep
+RANDOM_K:            int         = DQN_TOP_K                          # E2 Random-K subset size
+Q_MIX_SWEEP:         list[float] = [0.0, 0.1, 0.25, 0.5, 0.75, 1.0]   # E2 q-mixed
+LAMBDA_P_SWEEP:      list[float] = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0]  # E3 ES-only privacy scale
 
 
 # ---------------------------------------------------------------------------
@@ -228,13 +240,63 @@ def get_full_algorithm_registry():
     }
 
 
+def get_experiment_registry():
+    """
+    Decomposition arms (plan E1-E3), kept out of the main comparison table.
+    Values are functools.partial(SchedulerClass, **params); make_scheduler()
+    and the drivers accept them wherever a class is accepted.
+
+      DQN-ES[K=k]       E1 K-sweep (K=3 is DQN-ES, K=1 is DQN-only's policy,
+                        K=5 enumerates every destination = ES-only decisions)
+      Random-K[K=k]     E2 random K-subset + argmin F, no learning
+      q-mixed[q=..]     E2 random K-subset w.p. q, else full enumeration
+      Static-Tier       E2 ECG -> edge, all other task types local
+      ES-only[lP=..]    E3 reweighted greedy (privacy weight x lambda_P)
+    """
+    from functools import partial
+    from src.algorithms.dqn_es import DQNESScheduler
+    from src.algorithms.es_only import ESOnlyScheduler
+    from src.algorithms.random_k import QMixedScheduler, RandomKScheduler
+    from src.algorithms.static_tier import StaticTierScheduler
+
+    reg = {}
+    for k in K_SWEEP:
+        reg[f'DQN-ES[K={k}]'] = partial(DQNESScheduler, n_candidate_nodes=k)
+    reg[f'Random-K[K={RANDOM_K}]'] = partial(RandomKScheduler,
+                                             n_candidate_nodes=RANDOM_K)
+    for q in Q_MIX_SWEEP:
+        reg[f'q-mixed[q={q:g}]'] = partial(QMixedScheduler, q=q,
+                                           n_candidate_nodes=RANDOM_K)
+    reg['Static-Tier'] = StaticTierScheduler
+    for lam in LAMBDA_P_SWEEP:
+        reg[f'ES-only[lP={lam:g}]'] = partial(ESOnlyScheduler,
+                                              privacy_weight_scale=lam)
+    return reg
+
+
+def get_registry(name: str = 'main'):
+    """'main' (9-algorithm comparison), 'experiments', or 'all'."""
+    if name == 'main':
+        return get_full_algorithm_registry()
+    if name == 'experiments':
+        return get_experiment_registry()
+    if name == 'all':
+        return {**get_full_algorithm_registry(), **get_experiment_registry()}
+    raise ValueError(f'unknown registry {name!r}')
+
+
 def make_scheduler(sched_cls, topology, seed: int, **kwargs):
     """
     Construct a scheduler for one replicate.  `seed` is passed to every
     scheduler whose constructor accepts it (all stochastic ones do), so no
-    driver can silently fall back to a class default seed.
+    driver can silently fall back to a class default seed.  `sched_cls` may
+    be a class or a functools.partial of one (experiment registry).
     """
+    import functools
     import inspect
+    if isinstance(sched_cls, functools.partial):
+        kwargs = {**sched_cls.keywords, **kwargs}
+        sched_cls = sched_cls.func
     params = inspect.signature(sched_cls.__init__).parameters
     if 'seed' in params:
         kwargs['seed'] = seed
@@ -252,8 +314,8 @@ def summary() -> str:
         f"eps<0.05 after {EPSILON_T_AT_0_05} tasks\n"
         f"  DQN: hidden={DQN_HIDDEN_DIM}  lr={DQN_LR}  gamma={DQN_GAMMA}  "
         f"batch={DQN_BATCH_SIZE}\n"
-        f"  BBO: pop={BBO_POP}  iter={BBO_MAX_ITER}  K={BBO_TOP_K}  "
-        f"delta0={BBO_DELTA0}\n"
+        f"  DQN top-K: K={DQN_TOP_K}  K-sweep={K_SWEEP}\n"
+        f"  Random-K={RANDOM_K}  q-mix={Q_MIX_SWEEP}  lambda_P={LAMBDA_P_SWEEP}\n"
         f"  CI weights (non-linear, default): "
         f"alpha_E={ALPHA_E} beta_L={BETA_L} gamma_P={GAMMA_P}\n"
         f"  Privacy guard entropy threshold: {PRIVACY_ENTROPY_THRESHOLD}\n"

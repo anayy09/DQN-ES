@@ -37,7 +37,7 @@ import numpy as np
 
 from src.algorithms.base_scheduler import BaseScheduler
 from src.config import (
-    BBO_TOP_K,
+    DQN_TOP_K,
     DQN_BATCH_SIZE,
     DQN_GAMMA,
     DQN_HIDDEN_DIM,
@@ -194,7 +194,7 @@ class DQNESScheduler(BaseScheduler):
     def __init__(
         self,
         topology,
-        n_candidate_nodes: int = BBO_TOP_K,
+        n_candidate_nodes: int = DQN_TOP_K,
         epsilon: float = EPSILON_INIT,
         epsilon_decay: float = EPSILON_DECAY,
         epsilon_min: float = EPSILON_MIN,
@@ -208,7 +208,13 @@ class DQNESScheduler(BaseScheduler):
     ):
         super().__init__(topology, offload_history)
 
-        self.n_candidate_nodes = min(n_candidate_nodes, len(self._candidate_nodes))
+        # K: size of the DQN candidate set over the network destinations
+        # (edge, fog nodes, cloud; local execution is not an action).
+        if not 1 <= n_candidate_nodes <= len(self._candidate_nodes):
+            raise ValueError(
+                f'K must be in 1..{len(self._candidate_nodes)}, '
+                f'got {n_candidate_nodes}')
+        self.n_candidate_nodes = int(n_candidate_nodes)
         self.epsilon = epsilon
         self.epsilon_decay = epsilon_decay
         self.epsilon_min = epsilon_min
