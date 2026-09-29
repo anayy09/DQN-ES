@@ -83,9 +83,6 @@ class OffloadingEnvironment:
 
         # State variables (reset on reset())
         self._battery_j: Dict[int, float] = {}
-        self._queue_task_counts: Dict[int, int] = {}
-        self._time_window_s: float = 1.0      # sliding window for Î» estimation
-        self._recent_arrivals: Dict[int, List[float]] = {}   # node_id â†’ arrival times
         self._device_decisions: Dict[int, int] = {}   # decisions made per device
 
         self.reset()
@@ -100,11 +97,7 @@ class OffloadingEnvironment:
             self._battery_j[wid] = BATTERY_CAPACITY_J
         self._device_decisions = {}
 
-        for nid in self.topology.nodes:
-            self._queue_task_counts[nid] = 0
-            self.topology.nodes[nid].current_load = 0
-            self.topology.nodes[nid].arrival_rate = 0.0
-            self._recent_arrivals[nid] = []
+        self.topology.reset_queues()
 
     # ------------------------------------------------------------------
     # Single task step
@@ -131,8 +124,8 @@ class OffloadingEnvironment:
         else:
             task.attack_probability = max(task.attack_probability, 0.0)
 
-        # --- Update node queue loads before scheduling ---
-        self._update_arrival_rates(task.timestamp)
+        # --- Advance the clock: release tasks finished by now (D16) ---
+        self.topology.advance_time(task.timestamp)
 
         # --- Schedule (Fix C: record wall-clock time for select_node) ---
         if hasattr(self.scheduler, 'last_decision_info'):
@@ -187,10 +180,10 @@ class OffloadingEnvironment:
                 self._battery_j[task.device_id] - energy_j,
             )
 
-        # --- Queue update: mark task arrival at destination node ---
-        self._queue_task_counts[node_id] = self._queue_task_counts.get(node_id, 0) + 1
-        self._recent_arrivals[node_id].append(task.timestamp)
-        self.topology.update_load(node_id, delta=+1)
+        # --- Queue update: the task holds its node until service ends (D16) ---
+        wait, _done = self.topology.reserve(node_id, out.t_arrive, out.t_proc)
+        if abs(wait - out.t_queue) > 1e-9:
+            raise RuntimeError('realised FIFO wait differs from the prediction')
 
         # --- Compute composite cost for diagnostics ---
         lat_bounds = (0.0, max(latency_s * 2.0, 1e-3))
@@ -263,33 +256,10 @@ class OffloadingEnvironment:
             metrics = self.step(task)
             results.append(metrics)
 
-            # Periodically release completed tasks from queue
-            # (simple model: task completes after its latency)
-            complete_time = task.timestamp + (metrics['latency_ms'] / 1000.0)
-            assigned_node = metrics['assigned_node']
-            if self.topology.nodes[assigned_node].current_load > 0:
-                self.topology.update_load(assigned_node, delta=-1)
+            # Occupancy is released at completion time by advance_time().
 
         return results
 
-    # ------------------------------------------------------------------
-    # Arrival rate estimation (sliding window)
-    # ------------------------------------------------------------------
-
-    def _update_arrival_rates(self, current_time: float) -> None:
-        """
-        Update arrival rates Î» for each node using a sliding time window.
-        Prune arrivals older than _time_window_s from the history.
-        """
-        for nid in self.topology.nodes:
-            # Prune stale arrivals
-            cutoff = current_time - self._time_window_s
-            arrivals = [t for t in self._recent_arrivals.get(nid, []) if t > cutoff]
-            self._recent_arrivals[nid] = arrivals
-
-            # Î» = count / window_s
-            lam = len(arrivals) / self._time_window_s
-            self.topology.update_arrival_rate(nid, lam)
 
     # ------------------------------------------------------------------
     # State accessors

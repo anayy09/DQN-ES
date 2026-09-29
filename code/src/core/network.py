@@ -2,8 +2,11 @@
 IoT-Edge-Cloud network model.
 
 Models:
-  - Shannon capacity for uplink rates
-  - M/M/1 queueing for node queue delays
+  - Shannon capacity for uplink (and reciprocal downlink) rates
+  - One FIFO server per node (D16): a task occupies its node from arrival
+    until its service ends; service time = C_i / f_node for the task's own
+    C_i; the waiting time is the backlog ahead of it (a G/G/1 queue
+    simulated event by event, with occupancy released at completion time)
   - Propagation delay based on physical distance
 
 References:
@@ -13,6 +16,7 @@ References:
 
 from __future__ import annotations
 
+import heapq
 import math
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -28,7 +32,6 @@ BOLTZMANN_K = 1.38e-23           # J/K
 TEMPERATURE_K = 290.0            # standard temperature (290 K â‰ˆ 17 Â°C)
 REFERENCE_DISTANCE_M = 1.0       # d_0 for path-loss reference
 REFERENCE_GAIN_H0 = 1.0          # h_0 at d_0 (unit gain reference)
-AVG_CPU_CYCLES_PER_TASK = 6_000_000  # used in M/M/1 Î¼ computation
 
 
 # ---------------------------------------------------------------------------
@@ -43,8 +46,12 @@ class NetworkNode:
     node_type: str            # 'wearable' | 'edge' | 'fog' | 'cloud'
     hardware: HardwareProfile
     position_km: Tuple[float, float] = (0.0, 0.0)   # (x, y) in kilometres
-    current_load: int = 0     # number of tasks currently in queue
-    arrival_rate: float = 0.0  # Î» â€” tasks/second arriving at this node
+    current_load: int = 0     # tasks at this node (waiting or in service) at topology.now
+    arrival_rate: float = 0.0  # unused since D16 (kept for constructor compatibility)
+    # FIFO server state (D16)
+    busy_until: float = 0.0   # time the server finishes its current backlog
+    busy_time_s: float = 0.0  # cumulative service time (utilisation)
+    completions: List[float] = field(default_factory=list)  # heap of completion times
 
 
 @dataclass
@@ -68,6 +75,7 @@ class NetworkTopology:
     def __init__(self):
         self.nodes: Dict[int, NetworkNode] = {}
         self.links: Dict[Tuple[int, int], NetworkLink] = {}
+        self.now: float = 0.0     # simulation clock (time of the current decision)
 
     # ------------------------------------------------------------------
     # Graph construction
@@ -186,40 +194,56 @@ class NetworkTopology:
                                   link, channel_noise_dbm)
 
     # ------------------------------------------------------------------
-    # M/M/1 queue delay
+    # FIFO queue per node (D16)
     # ------------------------------------------------------------------
 
-    def get_queue_delay(
-        self,
-        node_id: int,
-        avg_cpu_cycles: float = AVG_CPU_CYCLES_PER_TASK,
-    ) -> float:
+    def reset_queues(self) -> None:
+        """Empty every queue and rewind the clock."""
+        self.now = 0.0
+        for n in self.nodes.values():
+            n.current_load = 0
+            n.arrival_rate = 0.0
+            n.busy_until = 0.0
+            n.busy_time_s = 0.0
+            n.completions = []
+
+    def advance_time(self, t: float) -> None:
         """
-        M/M/1 queueing delay W = Î» / (Î¼ Â· (Î¼ - Î»))  seconds.
+        Move the clock to t and release every task whose service has ended
+        by t, so current_load counts the tasks still at each node.
+        """
+        if t < self.now:
+            raise ValueError(f'time moved backwards: {t} < {self.now}')
+        self.now = t
+        for n in self.nodes.values():
+            while n.completions and n.completions[0] <= t:
+                heapq.heappop(n.completions)
+            n.current_load = len(n.completions)
 
-        Î¼ (service rate) = (max_mips Ã— 10^6) / avg_cpu_cycles  [tasks/s]
-        Î» (arrival rate) = node.arrival_rate  [tasks/s]
+    def get_queue_delay(self, node_id: int,
+                        arrival_time: Optional[float] = None) -> float:
+        """
+        FIFO waiting time for a task reaching `node_id` at `arrival_time`
+        (default: now): the backlog still ahead of it, max(0, busy_until - t).
+        """
+        t = self.now if arrival_time is None else arrival_time
+        return max(0.0, self.get_node(node_id).busy_until - t)
 
-        Returns 999.0 if the node is overloaded (Î» â‰¥ Î¼).
+    def reserve(self, node_id: int, arrival_time: float,
+                service_s: float) -> Tuple[float, float]:
+        """
+        Enqueue a task arriving at `arrival_time` needing `service_s` of
+        service.  Returns (waiting_time, completion_time).  The node stays
+        occupied until completion_time (released by advance_time).
         """
         node = self.get_node(node_id)
-
-        # Service rate: tasks per second based on CPU capacity
-        mu = (node.hardware.max_mips * 1e6) / max(avg_cpu_cycles, 1)
-
-        lam = node.arrival_rate
-
-        if lam <= 0.0:
-            return 0.0   # no load — no queue delay
-
-        if lam >= mu:
-            return 999.0  # overloaded / unstable queue
-
-        # M/M/1 mean waiting time in queue: W_q = ρ / (μ(1-ρ))
-        # The service time (t_proc) is added separately in compute_offload_latency.
-        rho = lam / mu
-        W_q = rho / (mu * (1.0 - rho))
-        return W_q
+        wait = max(0.0, node.busy_until - arrival_time)
+        done = arrival_time + wait + service_s
+        node.busy_until = done
+        node.busy_time_s += service_s
+        heapq.heappush(node.completions, done)
+        node.current_load = sum(1 for c in node.completions if c > self.now)
+        return wait, done
 
     # ------------------------------------------------------------------
     # Propagation delay
@@ -255,9 +279,6 @@ class NetworkTopology:
             0, self.nodes[node_id].current_load + delta
         )
 
-    def update_arrival_rate(self, node_id: int, rate: float) -> None:
-        """Update the estimated arrival rate Î» for M/M/1 computation."""
-        self.nodes[node_id].arrival_rate = max(0.0, rate)
 
     def __repr__(self) -> str:
         return (

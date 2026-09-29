@@ -6,13 +6,18 @@ the normalisation bounds (BaseScheduler.estimate_feasible_bounds) and the
 realised metrics (OffloadingEnvironment.step), so every scheduler optimises
 and is scored against the same model.
 
-Local execution (destination = the task's own wearable):
-    L = C_i / f_local,            E = kappa C_i f_local^2
-Offload to node j:
+Every node is a FIFO server (D16, core/network.py): a task arriving at
+node j at time a waits for the backlog max(0, busy_until_j - a), then is
+served for C_i / f_j.  The prediction below is exactly what the environment
+then reserves, so predicted and realised waiting times coincide.
+
+Local execution (destination = the task's own wearable), arrival a = now:
+    L = t_queue + C_i / f_local,  E = kappa C_i f_local^2
+Offload to node j, arrival a = now + t_tx + t_prop:
     L = t_tx + t_prop + t_queue + t_proc + t_dl
         t_tx   = D_i / R_ul                      (uplink)
         t_prop = d / v                           (one way)
-        t_queue: M/M/1 waiting time at j
+        t_queue: FIFO backlog at j when the task arrives
         t_proc = C_i / f_j
         t_dl   = t_prop + S_res / R_dl           (result return; plan E9)
     E = P_tx t_tx + P_rx (S_res / R_dl) + P_idle (L - t_tx - S_res / R_dl)
@@ -51,6 +56,8 @@ class OffloadOutcome:
     e_idle: float = 0.0
     e_rx: float = 0.0
     e_compute: float = 0.0     # local execution only
+    # time the task reaches its execution node (queue arrival, D16)
+    t_arrive: float = 0.0
 
 
 def result_size_bits(task) -> int:
@@ -68,24 +75,31 @@ def offload_outcome(topology, task, node_id: int,
     """
     src = topology.get_node(task.device_id)
 
+    now = topology.now
     if node_id == task.device_id:
-        lat = compute_local_latency(task.cpu_cycles, src.hardware.cpu_freq_hz)
+        t_proc = compute_local_latency(task.cpu_cycles, src.hardware.cpu_freq_hz)
+        t_queue = topology.get_queue_delay(node_id, now)
+        lat = t_queue + t_proc
         if latency_cap_s is not None:
             lat = min(lat, latency_cap_s)
+        # The wearable spends its queueing time serving earlier tasks, so
+        # only this task's own compute energy is charged to it.
         eng = compute_local_energy(task.cpu_cycles, src.hardware.cpu_freq_hz,
                                    src.hardware.kappa)
         return OffloadOutcome(latency_s=lat, energy_j=eng, is_local=True,
-                              t_proc=lat, e_compute=eng)
+                              t_queue=t_queue, t_proc=t_proc, e_compute=eng,
+                              t_arrive=now)
 
     dst = topology.get_node(node_id)
     r_ul = topology.get_uplink_rate(task.device_id, node_id)
     t_prop = topology.get_propagation_delay(task.device_id, node_id)
-    t_queue = topology.get_queue_delay(node_id)
     if r_ul <= 0 or dst.hardware.cpu_freq_hz <= 0:
         inf = float('inf')
         return OffloadOutcome(latency_s=inf, energy_j=inf, is_local=False)
 
     t_tx = task.data_size_bits / r_ul
+    t_arrive = now + t_tx + t_prop
+    t_queue = topology.get_queue_delay(node_id, t_arrive)
     t_proc = task.cpu_cycles / dst.hardware.cpu_freq_hz
 
     s_res = result_size_bits(task)
@@ -116,4 +130,5 @@ def offload_outcome(topology, task, node_id: int,
     return OffloadOutcome(latency_s=lat, energy_j=eng, is_local=False,
                           t_tx=t_tx, t_prop=t_prop, t_queue=t_queue,
                           t_proc=t_proc, t_dl=t_dl,
-                          e_tx=e_tx, e_idle=e_idle, e_rx=e_rx)
+                          e_tx=e_tx, e_idle=e_idle, e_rx=e_rx,
+                          t_arrive=t_arrive)

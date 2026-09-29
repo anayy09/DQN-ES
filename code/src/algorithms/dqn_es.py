@@ -252,7 +252,9 @@ class DQNESScheduler(BaseScheduler):
         self._rng = np.random.default_rng(seed)
 
         self._max_rate_bps = 1e9          # 1 Gbps reference
-        self._max_load = 100              # max tasks in queue
+        # Load feature = tasks at the node / 10, capped at 1 (D16: occupancy
+        # is now held until completion, so this feature varies).
+        self._max_load = 10
         self._max_rtt_s = 0.5            # 500 ms reference RTT
 
         self.epsilon_history: List[float] = []
