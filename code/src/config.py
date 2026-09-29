@@ -290,6 +290,30 @@ STAT_FAMILIES: dict = {
         'comparators': ['flat', 'step', 'linear'],
         'metrics':     STAT_METRICS,
     },
+    'privacy_inference': {                      # E5 / D17(b): 3 x 1 = 3 tests
+        'reference':   'DQN-ES',
+        'comparators': ['ES-only', 'Random-K[K=3]', 'Static-Tier'],
+        'metrics':     ['adversary_auc'],       # per test replicate (analysis/e5_adversary.py)
+    },
+}
+
+# D17(a): E2/E3 primary statistic, "privacy excess at matched latency".
+# Per replicate r: sort the frontier's points (latency_r, R_P_r) by latency,
+# interpolate R_P linearly at DQN-ES's latency_r, and take
+# excess_r = R_P(DQN-ES)_r - R_P(frontier at latency_r).  A replicate whose
+# DQN-ES latency lies outside that replicate's frontier latency range is not
+# extrapolated: it is excluded and the count is reported.  Report the median
+# of excess_r with a replicate-bootstrap CI (STAT_BOOT_N, STAT_CI_LEVEL),
+# for all-task and for steady-state R_P.  Negative = DQN-ES below the frontier.
+MATCHED_LATENCY: dict = {
+    'reference': 'DQN-ES',
+    'x_metric':  'avg_latency_ms',
+    'y_metrics': ['avg_privacy_risk', 'avg_privacy_risk_ss'],
+    'frontiers': {
+        'q_mixed':  [f'q-mixed[q={q:g}]' for q in Q_MIX_SWEEP],
+        'lambda_p': [f'ES-only[lP={lam:g}]' for lam in LAMBDA_P_SWEEP],
+    },
+    'scale':     PRIMARY_SCALE,
 }
 
 # TOST (equivalence) only where equivalence is claimed; off by default.

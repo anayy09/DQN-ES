@@ -99,7 +99,7 @@ def _long_path(path: Path) -> Path:
     prefix = '\\\\?\\'
     if os.name == 'nt':
         full = str(path.resolve())
-        if len(full) >= 240 and not full.startswith(prefix):
+        if len(full) >= 200 and not full.startswith(prefix):
             return Path(prefix + full)
     return path
 

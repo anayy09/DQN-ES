@@ -95,27 +95,34 @@ python code/run_model_checks.py  # model components and the FIFO queue vs closed
 
 ## Experiment pipeline
 
-`code/run_q1_pipeline.py` runs the steps below in order. Each step can be skipped with its flag.
+`code/run_q1_pipeline.py` declares every step, writes the declaration to `<results>/manifests/declared_arms.json`, runs the steps, writes one manifest per step, and ends with a `verify` check. Each manifest records the commit, config hash, CLI, seeds, host, and start and end times.
 
 ```bash
-python code/run_q1_pipeline.py --n_runs 30 --workers 8          # full run (several hours)
-python code/run_q1_pipeline.py --n_runs 2 --scales 100           # quick end-to-end check
+python code/run_q1_pipeline.py --n_runs 30 --workers 8                      # full run
+python code/run_q1_pipeline.py --n_runs 2 --scales 100     --results-dir /tmp/check/results --figures-dir /tmp/check/figures      # end-to-end check
+python code/run_q1_pipeline.py --declare-only                              # write the declaration only
+python code/run_q1_pipeline.py --only scaling workload                     # a subset, by name prefix
 ```
 
-| Flag | Step | Main output |
+| Step (skip flag) | What runs | Output under `--results-dir` |
 |------|------|-------------|
-| `--skip-mc` | Monte Carlo, main registry, all scales | `results/mc_full_summary.json`, `table3_n1000.csv` |
-| `--skip-stats` | Paired signed-rank tests, Holm within declared families | `table3_stat_tests.csv`, `table3_n1000_with_pvals.csv` |
-| `--skip-weight` | CI weight-scheme ablation (mixed CI) | `table5_weight_ablation.csv` |
-| `--skip-privacy` | Privacy Guard on MedSec-25 | `privacy_guard_metrics.json` |
-| `--skip-mitbih` | MIT-BIH trace-driven evaluation | `table5_mitbih_trace.csv` |
-| `--skip-figures` | Figures | figures directory |
-| `--skip-highci` | Weight-scheme ablation, all-high-CI workload | `table6_highci_weights.csv` |
-| `--skip-overhead` | Decision-time split vs fog-node count | `scheduling_overhead_summary.csv` |
-| `--skip-decomp` | Latency decomposition | `latency_decomposition.csv` |
-| `--skip-routing` | DQN-only routing distribution | `dqn_only_routing_summary.json` |
+| `mc_main` (`--skip-mc`) | main registry, N = 100 ... 5000 | `mc_full_summary.json`, `table3_n1000.csv` |
+| `mc_experiments`, `mc_experiments_long` (`--skip-experiments`) | K-sweep, Random-K, q-mixed, Static-Tier, λ_P at N = 1000; DQN-ES, ES-only and the q-mixed curve at N = 5000 | `experiments/`, `experiments_n5000/` |
+| `stats` (`--skip-stats`) | paired signed-rank tests, Holm within the declared families; privacy excess at matched latency | `table3_stat_tests.csv`, `stat_tests_*.csv`, `matched_latency.csv` |
+| `payload_10kb`, `result_size_*` (`--skip-sensitivity`) | 10 KB ECG payload; result size 1/4/16/64 KB | `sensitivity/<tag>/` |
+| `scaling_M*` (`--skip-scaling`) | 8, 16, 32 fog nodes | `scaling/M<M>/` |
+| `workload_*` (`--skip-workload`) | offered edge load 0.3/0.6/0.85, MMPP-2 arrivals | `sensitivity/<tag>/` |
+| `warm_start_*` (`--skip-warm`) | DQN pre-trained on 500 / 2000 tasks | `sensitivity/warm*/` |
+| `ci_noise_*` (`--skip-cinoise`) | Gaussian CI noise 0.05/0.1/0.2, tier misclassification 0.1/0.2 | `sensitivity/cin*/`, `cim*/` |
+| `weight_mixed`, `weight_highci` (`--skip-weight`, `--skip-highci`) | CI weight-scheme ablation | `table5_weight_ablation.csv`, `table6_highci_weights.csv` |
+| `mitbih` (`--skip-mitbih`) | MIT-BIH trace, main and experiment arms | `table5_mitbih_trace.csv` |
+| `privacy_guard` (`--skip-privacy`) | Privacy Guard on MedSec-25 | `privacy_guard_metrics.json` |
+| `overhead` (`--skip-overhead`) | decision-time split vs fog-node count (serial) | `scheduling_overhead_summary.csv` |
+| `decomposition`, `routing` (`--skip-decomp`, `--skip-routing`) | latency components; DQN-only routing | `latency_decomposition.csv`, `dqn_only_routing_summary.json` |
+| `model_checks` (`--skip-checks`) | closed-form component and queue checks | `model_checks.json` |
+| `figures` (`--skip-figures`) | figures | `--figures-dir` |
 
-Multi-run steps use a `spawn` process pool (Windows-safe); `--workers N` sets its size.
+Per-run raw logs (gzip CSV, one per algorithm and replicate) go to `raw/` inside each output directory. `python -m src.analysis.manifest verify --results-dir DIR` (from `code/`) re-checks a finished run.
 
 ### Reproducibility
 

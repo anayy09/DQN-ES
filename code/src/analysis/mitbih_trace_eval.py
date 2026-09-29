@@ -331,6 +331,13 @@ def main():
     if overrides and not args.results_dir:
         results_dir = results_dir / 'sensitivity' / overrides_tag(overrides)
 
+    from src.analysis.manifest import Manifest
+    with Manifest(results_dir, 'cli_mitbih', vars(args), n_runs=args.n_runs,
+                  scales=[0], data_dir=data_dir):
+        _run_mitbih_cli(args, data_dir, results_dir, overrides)
+
+
+def _run_mitbih_cli(args, data_dir, results_dir, overrides):
     run_mitbih_trace(
         data_dir, results_dir,
         n_runs=args.n_runs,

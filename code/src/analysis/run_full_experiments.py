@@ -375,6 +375,13 @@ def main():
     if args.n_fog != N_FOG_NODES and not args.output:
         results_dir = results_dir / 'scaling' / f'M{args.n_fog}'
 
+    from src.analysis.manifest import Manifest
+    with Manifest(results_dir, f'cli_run_full_{args.registry}', vars(args),
+                  n_runs=n_runs, scales=scales):
+        _run_full_cli(args, scales, n_runs, results_dir, overrides)
+
+
+def _run_full_cli(args, scales, n_runs, results_dir, overrides):
     run_full(scales, n_runs, results_dir, workers=args.workers,
              registry_name=args.registry, algorithms=args.algorithms,
              raw_logs=not args.no_raw, task_overrides=overrides,
