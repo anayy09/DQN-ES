@@ -25,6 +25,10 @@ Commands (from code/):
       permutation p and a test-replicate bootstrap CI.
   python -m src.analysis.post_run e8  --raw-dirs DIR... --out DIR
   python -m src.analysis.post_run e11 --raw-dirs DIR... --out DIR --algorithms A...
+  python -m src.analysis.post_run dominance --summaries F... --scale N --out DIR
+      Exploratory: paired DQN-ES vs Static-Tier, ES-only[lP], q-mixed and
+      Random-K on every metric (HL difference, bootstrap CI, exact p, Holm
+      over this table only).
   python -m src.analysis.post_run d17a --out DIR
       Exploratory: D17(a) matched-latency excess in every condition where
       DQN-ES and a frontier exist, with the reason for each exclusion.
@@ -550,10 +554,52 @@ def cmd_d17a(out_dir: Path) -> None:
 
 
 # --------------------------------------------------------------------------
+# Paired DQN-ES vs frontier arms (exploratory; not a declared family)
+# --------------------------------------------------------------------------
+
+DOMINANCE_ARMS = ['Static-Tier', 'ES-only[lP=1.5]', 'ES-only[lP=2]', 'ES-only[lP=3]',
+                  'q-mixed[q=0.25]', 'q-mixed[q=0.5]', 'Random-K[K=3]']
+DOMINANCE_METRICS = ['avg_latency_ms', 'avg_energy_mj', 'avg_privacy_risk',
+                     'avg_privacy_risk_ss', 'sla_violation_pct']
+
+
+def cmd_dominance(summaries: List[Path], scale: int, out_dir: Path) -> None:
+    from src.analysis.paired_stats import holm_adjust, paired_comparison, samples_by_run
+    from src.analysis.statistical_tests import ROW_FIELDS, _load_cells
+    from src.config import STAT_BOOT_N, STAT_BOOT_SEED, STAT_CI_LEVEL
+    cell = _load_cells(summaries, scale)
+    rows = []
+    for comp in DOMINANCE_ARMS:
+        for m in DOMINANCE_METRICS:
+            if comp not in cell or m not in cell[comp]:
+                continue
+            res = paired_comparison(samples_by_run(cell['DQN-ES'][m]),
+                                    samples_by_run(cell[comp][m]), n_boot=STAT_BOOT_N,
+                                    level=STAT_CI_LEVEL, seed=STAT_BOOT_SEED + len(rows))
+            rows.append({'family': 'exploratory_dominance', 'metric': m,
+                         'reference': 'DQN-ES', 'comparator': comp,
+                         'status': 'identical' if res['identical'] else 'tested', **res})
+    adj = holm_adjust([r.get('p_exact', 1.0) for r in rows])
+    for r, pa in zip(rows, adj):
+        r['family_size'] = len(rows)
+        r['p_holm'] = float(pa)
+        r['reject_holm'] = bool(pa <= 0.05)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _csv(out_dir / 'dominance_vs_dqn_es.csv',
+         [{k: r.get(k, '') for k in ROW_FIELDS if k not in ('tost_margin', 'p_tost')}
+          | {'label': 'exploratory (not declared); Holm over this table only'}
+          for r in rows])
+    for r in rows:
+        print(f"  {r['comparator']:<16} {r['metric']:<20} d={r['hl_diff']:+.4f} "
+              f"[{r['ci_lo']:+.4f}, {r['ci_hi']:+.4f}] p_holm={r['p_holm']:.2e}")
+
+
+# --------------------------------------------------------------------------
 
 def main():
     p = argparse.ArgumentParser(description='post-run analyses (P2)')
-    p.add_argument('command', choices=['e5', 'corr', 'e8', 'e11', 'd17a'])
+    p.add_argument('command', choices=['e5', 'corr', 'e8', 'e11', 'd17a', 'dominance'])
     p.add_argument('--raw-dirs', nargs='+', default=[])
     p.add_argument('--out', required=True)
     p.add_argument('--algorithms', nargs='+', default=None)
@@ -585,6 +631,8 @@ def main():
             e11_run(a.raw_dirs, out, a.algorithms)
         elif a.command == 'd17a':
             cmd_d17a(out)
+        elif a.command == 'dominance':
+            cmd_dominance([Path(s) for s in a.summaries], a.scale, out)
 
 
 if __name__ == '__main__':
