@@ -47,7 +47,7 @@ def replicate_seeds(run_id: int, n_tasks: int = 0) -> dict:
     base = replicate_seed(run_id, n_tasks)
     # Child i of a SeedSequence depends only on i, so adding streams never
     # changes the existing ones.
-    kids = _np.random.SeedSequence(base).spawn(5)
+    kids = _np.random.SeedSequence(base).spawn(6)
     s = lambda k: int(kids[k].generate_state(1)[0])
     return {
         'base':      base,
@@ -58,6 +58,7 @@ def replicate_seeds(run_id: int, n_tasks: int = 0) -> dict:
         'arrival':   s(2),   # MMPP-2 state/arrival draws (E7)
         'ci_noise':  s(3),   # scheduler-visible CI perturbation (E14)
         'pretrain':  s(4),   # warm-start pre-training stream (E12)
+        'fading':    s(5),   # per-task channel state: fading gain, ARQ (E7b)
     }
 
 
@@ -240,6 +241,16 @@ MMPP2_SWITCH_PROBS:     tuple = (0.02, 0.10)
 # arrival rate lambda independent of N.  The achieved utilisation depends on
 # the scheduler and is reported per run (edge_utilisation).
 LOAD_RHO_TARGETS:       list  = [0.3, 0.6, 0.85]
+
+# Channel realism (plan E7, Tier 3; off by default).  Per task, the
+# wearable's link sees a Rayleigh block-fading power gain g ~ Exp(1) (uplink
+# and, reciprocally, downlink) and an ARQ with independent packet losses:
+# the payload is split into ARQ_PACKET_BITS packets and each is resent until
+# received, so the number of transmissions is n_pkt + NegBin(n_pkt, 1 - p).
+# Schedulers plan with the expected channel (g = 1, expected transmission
+# factor 1 / (1 - p)); the environment realises the sampled channel.
+ARQ_PACKET_BITS:        int   = 12_000                 # 1500-byte packets
+PACKET_LOSS_SWEEP:      list  = [0.01, 0.05]
 
 # Warm start (plan E12): pre-train DQN schedulers on N_pre synthetic tasks
 # from the replicate's disjoint 'pretrain' seed stream before evaluation.

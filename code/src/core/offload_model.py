@@ -71,13 +71,25 @@ def result_size_bits(task) -> int:
 
 
 def offload_outcome(topology, task, node_id: int,
-                    latency_cap_s: Optional[float] = None) -> OffloadOutcome:
+                    latency_cap_s: Optional[float] = None,
+                    realised: bool = False) -> OffloadOutcome:
     """
     Latency and wearable energy of running `task` on `node_id`.
 
     latency_cap_s caps L before the idle-energy term is computed (the
     environment uses 999 s to keep an overloaded queue finite).
+
+    realised=False (schedulers): expected channel, i.e. fading gain 1 and
+    transmission factor 1 / (1 - packet_loss).  realised=True (environment):
+    the task's sampled fading_gain and arq_factor (E7b).  With an ideal
+    channel (no channel state on the task) both are identical.
     """
+    if realised and task.fading_gain is not None:
+        gain, arq = task.fading_gain, task.arq_factor
+    else:
+        gain = 1.0
+        p = task.packet_loss or 0.0
+        arq = 1.0 / (1.0 - p)
     src = topology.get_node(task.device_id)
 
     now = topology.now
@@ -100,7 +112,8 @@ def offload_outcome(topology, task, node_id: int,
                               t_arrive=now)
 
     dst = topology.get_node(node_id)
-    r_ul = topology.get_uplink_rate(task.device_id, node_id)
+    # Effective uplink rate: fading gain on the SNR, ARQ retransmissions
+    r_ul = topology.get_uplink_rate(task.device_id, node_id, gain=gain) / arq
     t_prop = topology.get_propagation_delay(task.device_id, node_id)
     if r_ul <= 0 or dst.hardware.cpu_freq_hz <= 0:
         inf = float('inf')
@@ -114,7 +127,7 @@ def offload_outcome(topology, task, node_id: int,
     s_res = result_size_bits(task)
     if s_res > 0:
         r_dl = topology.get_downlink_rate(task.device_id, node_id,
-                                          DOWNLINK_TX_POWER_W)
+                                          DOWNLINK_TX_POWER_W, gain=gain)
         t_rx = s_res / r_dl
         t_dl = t_prop + t_rx
     else:

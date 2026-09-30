@@ -38,6 +38,12 @@ class HealthcareTask:
     task_type: str = 'unknown'        # key into TASK_PROFILES (e.g. 'ecg_analysis')
     result_size_bits: Optional[int] = None  # result returned to the wearable; None -> config.RESULT_SIZE_BITS
     ci_true: Optional[float] = None   # true Phi when ci_score is a perturbed, scheduler-visible value (E14)
+    # E7b channel state (None = ideal channel): realised fading power gain,
+    # realised ARQ transmission factor, and the loss probability the
+    # schedulers plan with
+    fading_gain: Optional[float] = None
+    arq_factor: Optional[float] = None
+    packet_loss: Optional[float] = None
     assigned_node: Optional[int] = None
     actual_latency_s: Optional[float] = None
     actual_energy_j: Optional[float] = None

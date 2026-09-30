@@ -43,6 +43,32 @@ TASK_OVERRIDE_KEYS = ('ecg_payload_bits', 'result_size_bits')
 WORKLOAD_KEYS = ('arrival_process', 'load_rho')
 SCHEDULER_KEYS = ('warm_start_tasks',)
 CI_NOISE_KEYS = ('ci_noise_sigma', 'ci_misclass_prob')
+CHANNEL_KEYS = ('fading', 'packet_loss')
+
+
+def draw_channel(tasks: List[HealthcareTask], fading: Optional[str],
+                 packet_loss: Optional[float], seed: int) -> None:
+    """
+    E7b: per-task channel state from the replicate's 'fading' stream (the
+    same for every arm).  fading='rayleigh' draws g ~ Exp(1); packet_loss p
+    draws the ARQ transmission count n_pkt + NegBin(n_pkt, 1 - p) for the
+    task's payload split into ARQ_PACKET_BITS packets.
+    """
+    import math
+    import numpy as np
+    from src.config import ARQ_PACKET_BITS
+    # Separate child streams: the fading gains are identical whatever the
+    # loss setting, and vice versa.
+    g_ss, a_ss = np.random.SeedSequence(seed).spawn(2)
+    g_rng, a_rng = np.random.default_rng(g_ss), np.random.default_rng(a_ss)
+    p = float(packet_loss or 0.0)
+    for t in tasks:
+        u_gain = g_rng.exponential(1.0)
+        n_pkt = max(1, math.ceil(t.data_size_bits / ARQ_PACKET_BITS))
+        extra = int(a_rng.negative_binomial(n_pkt, 1.0 - p)) if p > 0 else 0
+        t.fading_gain = float(u_gain) if fading == 'rayleigh' else 1.0
+        t.arq_factor = (n_pkt + extra) / n_pkt
+        t.packet_loss = p
 
 
 def perturb_ci(tasks: List[HealthcareTask], sigma: Optional[float],
@@ -86,7 +112,7 @@ def apply_task_overrides(tasks: List[HealthcareTask],
     if not overrides:
         return tasks
     unknown = (set(overrides) - set(TASK_OVERRIDE_KEYS) - set(WORKLOAD_KEYS)
-               - set(SCHEDULER_KEYS) - set(CI_NOISE_KEYS))
+               - set(SCHEDULER_KEYS) - set(CI_NOISE_KEYS) - set(CHANNEL_KEYS))
     if unknown:
         raise KeyError(f'unknown task overrides: {sorted(unknown)}')
     for t in tasks:
@@ -94,6 +120,11 @@ def apply_task_overrides(tasks: List[HealthcareTask],
             t.data_size_bits = int(overrides['ecg_payload_bits'])
         if overrides.get('result_size_bits') is not None:
             t.result_size_bits = int(overrides['result_size_bits'])
+    if overrides.get('fading') or overrides.get('packet_loss'):
+        if seeds is None:
+            raise ValueError('channel draws need the replicate seeds')
+        draw_channel(tasks, overrides.get('fading'), overrides.get('packet_loss'),
+                     seeds['fading'])
     if overrides.get('ci_noise_sigma') or overrides.get('ci_misclass_prob'):
         if seeds is None:
             raise ValueError('CI noise needs the replicate seeds')
@@ -121,6 +152,10 @@ def overrides_tag(overrides: Optional[dict]) -> str:
         parts.append(f"cin{overrides['ci_noise_sigma']:g}")
     if overrides.get('ci_misclass_prob'):
         parts.append(f"cim{overrides['ci_misclass_prob']:g}")
+    if overrides.get('fading'):
+        parts.append(str(overrides['fading']))
+    if overrides.get('packet_loss'):
+        parts.append(f"loss{overrides['packet_loss']:g}")
     return '_'.join(parts)
 
 

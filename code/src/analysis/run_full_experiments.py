@@ -342,6 +342,10 @@ def main():
     parser.add_argument('--load-rho', type=float, default=None,
                         help='Target offered edge utilisation (E7), sets the '
                              'absolute arrival rate')
+    parser.add_argument('--fading', choices=['rayleigh'], default=None,
+                        help='Rayleigh block fading on the wearable link (E7b)')
+    parser.add_argument('--packet-loss', type=float, default=None,
+                        help='Per-packet loss probability with ARQ (E7b)')
     parser.add_argument('--ci-noise', type=float, default=None,
                         help='Gaussian sigma on the scheduler-visible CI (E14)')
     parser.add_argument('--ci-misclass', type=float, default=None,
@@ -365,7 +369,9 @@ def main():
                  'load_rho': args.load_rho,
                  'warm_start_tasks': args.warm_start,
                  'ci_noise_sigma': args.ci_noise,
-                 'ci_misclass_prob': args.ci_misclass}
+                 'ci_misclass_prob': args.ci_misclass,
+                 'fading': args.fading,
+                 'packet_loss': args.packet_loss}
     overrides = {k: v for k, v in overrides.items() if v is not None} or None
     results_dir = (Path(args.output) if args.output
                    else project_root / 'results')
