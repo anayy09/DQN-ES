@@ -209,6 +209,24 @@ def compute_local_energy(
     return kappa * cpu_cycles * (cpu_freq_hz ** 2)
 
 
+def compute_local_energy_draw(
+    cpu_cycles: int,
+    cpu_freq_hz: float,
+    active_power_w: float,
+) -> float:
+    """
+    Battery energy of local execution from a measured supply draw:
+      E_local = P_active * C_i / f
+
+    The wearable uses this with the ESP32-S3 datasheet current (G1-3,
+    config.WEARABLE_COMPUTE_DRAW_W); the CMOS kappa model above is kept only
+    for profiles without a datasheet draw.
+    """
+    if cpu_freq_hz <= 0:
+        return float('inf')
+    return active_power_w * cpu_cycles / cpu_freq_hz
+
+
 def compute_offload_energy(
     data_size_bits: int,
     uplink_rate_bps: float,
@@ -231,7 +249,8 @@ def compute_offload_energy(
     data_size_bits  : int   — D_i in bits
     uplink_rate_bps : float — R in bits/s
     total_latency_s : float — L_off (end-to-end)
-    tx_power_w      : float — P_tx (wearable transmission power)
+    tx_power_w      : float — P_tx (wearable battery draw while transmitting;
+                              not the radiated power of the rate equation)
     idle_power_w    : float — P_idle (wearable during waiting)
     rx_time_s       : float — t_rx, time spent receiving the result
     rx_power_w      : float — P_rx (wearable receive power)

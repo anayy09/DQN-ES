@@ -176,17 +176,53 @@ RESULT_SIZE_SENSITIVITY_BITS:  list[int]  = [8_000, 32_000, 128_000, 512_000]  #
 
 # Downlink rate uses the uplink channel model on the wearable's registered
 # link (reciprocal channel, wearable's 20 MHz channel) with the serving side
-# transmitting at DOWNLINK_TX_POWER_W.  Assumed value: 20 dBm, a typical
-# 2.4 GHz Wi-Fi access-point transmit power (EU EIRP limit); not measured.
+# transmitting at DOWNLINK_TX_POWER_W.  Assumed value, set at the regulatory
+# maximum: ETSI EN 300 328 V2.2.2 (2019-07) cl. 4.3.2.2.3 limits 2.4 GHz
+# wideband (non-FHSS) equipment to 20 dBm e.i.r.p.; not measured.
 DOWNLINK_TX_POWER_W:           float      = 0.100
 
-# Wearable Wi-Fi receive power.  ESP32-S3 Series Datasheet (Espressif),
-# "Current Consumption" / RF-mode table: Rx 802.11n HT20, typical 88 mA at
-# VDD = 3.3 V, 25 C  ->  0.088 A x 3.3 V = 0.290 W.  (Check the datasheet
-# version/table number when citing; see the provenance table S1.)
-WEARABLE_RX_CURRENT_A:         float      = 0.088
+
+# ---------------------------------------------------------------------------
+# Wearable power model (G1-3; core/hardware_profiles.py WEARABLE_ESP32)
+# ---------------------------------------------------------------------------
+# All values from the Espressif ESP32-S3 Series Datasheet, Version 2.2
+# (2026-03-05).  Radiated power (the rate equation) and battery draw (the
+# energy terms) are separate constants.  Draw = datasheet current x supply.
+
+# Supply: Table 5-2 (Recommended Operating Conditions), VDD typ 3.3 V
+# (3.0-3.6 V); the section 5.6.1 currents are measured at 3.3 V, 25 C.
 WEARABLE_SUPPLY_V:             float      = 3.3
+
+# Radiated TX power (uplink SNR only): Table 6-2, 802.11n HT20 MCS7, typ
+# 18.5 dBm -- the HT20 output whose current Table 5-7 gives.  Below the
+# ETSI EN 300 328 cl. 4.3.2.2.3 bound of 20 dBm e.i.r.p.
+WEARABLE_TX_RADIATED_DBM:      float      = 18.5
+WEARABLE_TX_RADIATED_W:        float      = 10.0 ** (WEARABLE_TX_RADIATED_DBM / 10.0) / 1000.0
+
+# Battery draw while transmitting: Table 5-7, TX 802.11n HT20 MCS7 @ 18.5 dBm,
+# 283 mA (peak, 100 % duty cycle).
+WEARABLE_TX_CURRENT_A:         float      = 0.283
+WEARABLE_TX_DRAW_W:            float      = WEARABLE_TX_CURRENT_A * WEARABLE_SUPPLY_V
+
+# Battery draw while receiving the result: Table 5-7, RX 802.11b/g/n HT20,
+# 88 mA.
+WEARABLE_RX_CURRENT_A:         float      = 0.088
 WEARABLE_RX_POWER_W:           float      = WEARABLE_RX_CURRENT_A * WEARABLE_SUPPLY_V
+
+# Battery draw while awaiting the result: Table 5-9 (Modem-sleep), 240 MHz,
+# WAITI (dual core idle), Typ2 = all peripheral clocks enabled, 47.6 mA.
+WEARABLE_WAIT_CURRENT_A:       float      = 0.0476
+WEARABLE_WAIT_DRAW_W:          float      = WEARABLE_WAIT_CURRENT_A * WEARABLE_SUPPLY_V
+
+# Battery draw during local computation: Table 5-9, 240 MHz, single core
+# running 32-bit data access instructions, other core idle, Typ2 (peripheral
+# clocks enabled), 65.9 mA.  Local energy = draw x C_i / f_w (the single-core
+# latency model); the CMOS kappa model is not used for the wearable.
+WEARABLE_COMPUTE_CURRENT_A:    float      = 0.0659
+WEARABLE_COMPUTE_DRAW_W:       float      = WEARABLE_COMPUTE_CURRENT_A * WEARABLE_SUPPLY_V
+
+# CPU clock: datasheet p. 5, "up to 240 MHz".
+WEARABLE_CPU_FREQ_HZ:          float      = 240e6
 
 
 # ---------------------------------------------------------------------------

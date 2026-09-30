@@ -12,7 +12,9 @@ served for C_i / f_j.  The prediction below is exactly what the environment
 then reserves, so predicted and realised waiting times coincide.
 
 Local execution (destination = the task's own wearable), arrival a = now:
-    L = t_queue + C_i / f_local,  E = kappa C_i f_local^2
+    L = t_queue + C_i / f_local,  E = P_active C_i / f_local
+    (P_active = datasheet draw, G1-3; kappa C_i f^2 only for a profile
+    without a draw)
 Offload to node j, arrival a = now + t_tx + t_prop:
     L = t_tx + t_prop + t_queue + t_proc + t_dl
         t_tx   = D_i / R_ul                      (uplink)
@@ -21,6 +23,8 @@ Offload to node j, arrival a = now + t_tx + t_prop:
         t_proc = C_i / f_j
         t_dl   = t_prop + S_res / R_dl           (result return; plan E9)
     E = P_tx t_tx + P_rx (S_res / R_dl) + P_idle (L - t_tx - S_res / R_dl)
+R_ul uses the wearable's *radiated* power (hardware.tx_power_w); the energy
+uses its battery draw (hardware.tx_draw_w, idle_power_w, WEARABLE_RX_POWER_W).
 """
 
 from __future__ import annotations
@@ -35,6 +39,7 @@ from src.config import (
 )
 from src.core.cost_function import (
     compute_local_energy,
+    compute_local_energy_draw,
     compute_local_latency,
     compute_offload_energy,
 )
@@ -84,8 +89,12 @@ def offload_outcome(topology, task, node_id: int,
             lat = min(lat, latency_cap_s)
         # The wearable spends its queueing time serving earlier tasks, so
         # only this task's own compute energy is charged to it.
-        eng = compute_local_energy(task.cpu_cycles, src.hardware.cpu_freq_hz,
-                                   src.hardware.kappa)
+        hw = src.hardware
+        if hw.active_power_w > 0:
+            eng = compute_local_energy_draw(task.cpu_cycles, hw.cpu_freq_hz,
+                                            hw.active_power_w)
+        else:
+            eng = compute_local_energy(task.cpu_cycles, hw.cpu_freq_hz, hw.kappa)
         return OffloadOutcome(latency_s=lat, energy_j=eng, is_local=True,
                               t_queue=t_queue, t_proc=t_proc, e_compute=eng,
                               t_arrive=now)
@@ -117,13 +126,14 @@ def offload_outcome(topology, task, node_id: int,
         lat = min(lat, latency_cap_s)
 
     hw = src.hardware
+    p_tx_draw = hw.tx_draw_w if hw.tx_draw_w > 0 else hw.tx_power_w
     eng = compute_offload_energy(task.data_size_bits, r_ul, lat,
-                                 hw.tx_power_w, hw.idle_power_w,
+                                 p_tx_draw, hw.idle_power_w,
                                  rx_time_s=t_rx, rx_power_w=WEARABLE_RX_POWER_W)
     # Components, clipped exactly as in compute_offload_energy
     tx_time = min(t_tx, lat)
     rx_time = min(t_rx, max(0.0, lat - tx_time))
-    e_tx = hw.tx_power_w * tx_time
+    e_tx = p_tx_draw * tx_time
     e_rx = WEARABLE_RX_POWER_W * rx_time
     e_idle = hw.idle_power_w * max(0.0, lat - tx_time - rx_time)
 

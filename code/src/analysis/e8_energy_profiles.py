@@ -8,16 +8,14 @@ time spent in each phase is recovered exactly as energy / model power, and
 the energy is recomputed under each profile:
 
   E = P_tx t_tx + P_rx t_rx + P_wait t_wait + E_wake (per offloaded task)
-      + E_compute (local execution, CMOS model, unchanged)
+      + E_compute (local execution, datasheet draw, unchanged)
 
 Profiles (power = current x 3.3 V).  Current values are from the ESP32-S3
-Series Datasheet (Espressif), RF current-consumption and low-power-mode
-tables; verify the datasheet version and table numbers before citing them
-(parameter provenance table S1).  Wake-up energy is an assumption, not a
-datasheet value.
+Series Datasheet v2.2 (Espressif), Tables 5-7 and 5-10 (parameter provenance
+table S1).  Wake-up energy is an assumption, not a datasheet value.
 
-  model          the simulator's powers: TX 178 mW (22.5 dBm output power,
-                 used as the drawn power), RX 88 mA, wait 10 mA (33 mW)
+  model          the simulator's powers (G1-3, datasheet v2.2): TX 283 mA
+                 (Table 5-7, HT20 MCS7), RX 88 mA, wait 47.6 mA (Table 5-9)
   radio_on_wait  TX 340 mA (802.11b 1 Mbps, 21 dBm), RX 88 mA
                  (802.11n HT20), waiting with the receiver on (88 mA)
   light_sleep    TX 283 mA (802.11n HT20 MCS7), RX 88 mA, waiting in light
@@ -56,7 +54,7 @@ PROFILES = {
 def _model_powers():
     from src.config import WEARABLE_RX_POWER_W
     from src.core.hardware_profiles import WEARABLE_ESP32
-    return {'tx': WEARABLE_ESP32.tx_power_w, 'rx': WEARABLE_RX_POWER_W,
+    return {'tx': WEARABLE_ESP32.tx_draw_w, 'rx': WEARABLE_RX_POWER_W,
             'wait': WEARABLE_ESP32.idle_power_w}
 
 

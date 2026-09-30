@@ -10,13 +10,17 @@ scenario, and from the FIFO queue in core/network.py driven by synthetic
 arrivals.
 
 Checks
-  1. uplink transmission   t_tx  = D / (B log2(1 + P_tx h / N0))
+  1. uplink transmission   t_tx  = D / (B log2(1 + P_rad h / N0)), P_rad the
+     radiated power (18.5 dBm, datasheet Table 6-2)
   2. propagation           t_prop = d / v
   3. remote compute        t_proc = C / f_edge
   4. downlink              t_dl = d / v + S / (B log2(1 + P_dl h / N0))
   5. offload latency and wearable energy (sum of 1-4; E = P_tx t_tx +
-     P_rx t_rx + P_idle (L - t_tx - t_rx))
-  6. local latency and energy  L = C / f_w,  E = kappa C f_w^2
+     P_rx t_rx + P_wait (L - t_tx - t_rx), each P = datasheet current x 3.3 V:
+     TX 283 mA, RX 88 mA (Table 5-7), wait 47.6 mA (Table 5-9)), and each
+     energy component separately
+  6. local latency and energy  L = C / f_w,  E = P_cmp C / f_w
+     (P_cmp = 65.9 mA x 3.3 V, Table 5-9)
   7. queue: Poisson arrivals + exponential service through the FIFO node
      -> mean wait vs M/M/1  W_q = rho / (mu - lambda)
   8. queue: Poisson arrivals + deterministic service
@@ -41,7 +45,11 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 if BASE not in sys.path:
     sys.path.insert(0, BASE)
 
-from src.config import DOWNLINK_TX_POWER_W, RESULT_SIZE_BITS, WEARABLE_RX_POWER_W
+from src.config import (DOWNLINK_TX_POWER_W, RESULT_SIZE_BITS,
+                        WEARABLE_COMPUTE_CURRENT_A, WEARABLE_CPU_FREQ_HZ,
+                        WEARABLE_RX_CURRENT_A, WEARABLE_SUPPLY_V,
+                        WEARABLE_TX_CURRENT_A, WEARABLE_TX_RADIATED_DBM,
+                        WEARABLE_WAIT_CURRENT_A)
 from src.core.hardware_profiles import EDGE_GATEWAY_RPI4, WEARABLE_ESP32
 from src.core.network import NetworkLink, NetworkNode, NetworkTopology
 from src.core.offload_model import offload_outcome
@@ -79,7 +87,13 @@ def scenario():
 def check_components() -> list:
     topo, task = scenario()
     w, e = WEARABLE_ESP32, EDGE_GATEWAY_RPI4
-    r_ul = shannon(w.tx_power_w, w.bandwidth_hz, DIST_M, ALPHA)
+    # Datasheet-based wearable powers (G1-3), rebuilt here from the config
+    # currents: radiated power for the rate, supply draw for the energy.
+    p_rad = 10 ** (WEARABLE_TX_RADIATED_DBM / 10) / 1000.0
+    v = WEARABLE_SUPPLY_V
+    p_tx, p_rx = WEARABLE_TX_CURRENT_A * v, WEARABLE_RX_CURRENT_A * v
+    p_wait, p_cmp = WEARABLE_WAIT_CURRENT_A * v, WEARABLE_COMPUTE_CURRENT_A * v
+    r_ul = shannon(p_rad, w.bandwidth_hz, DIST_M, ALPHA)
     r_dl = shannon(DOWNLINK_TX_POWER_W, w.bandwidth_hz, DIST_M, ALPHA)
     t_tx = D_BITS / r_ul
     t_prop = DIST_M / V_PROP
@@ -87,10 +101,9 @@ def check_components() -> list:
     t_rx = RESULT_SIZE_BITS / r_dl
     t_dl = t_prop + t_rx
     lat = t_tx + t_prop + t_proc + t_dl        # empty queue
-    eng = (w.tx_power_w * t_tx + WEARABLE_RX_POWER_W * t_rx
-           + w.idle_power_w * (lat - t_tx - t_rx))
-    lat_local = C_CYCLES / w.cpu_freq_hz
-    eng_local = w.kappa * C_CYCLES * w.cpu_freq_hz ** 2
+    eng = p_tx * t_tx + p_rx * t_rx + p_wait * (lat - t_tx - t_rx)
+    lat_local = C_CYCLES / WEARABLE_CPU_FREQ_HZ
+    eng_local = p_cmp * C_CYCLES / WEARABLE_CPU_FREQ_HZ
 
     off = offload_outcome(topo, task, 1)
     loc = offload_outcome(topo, task, 0)
@@ -103,6 +116,9 @@ def check_components() -> list:
         ('offload wearable energy (mJ)', eng * 1e3, off.energy_j * 1e3),
         ('local latency (ms)', lat_local * 1e3, loc.latency_s * 1e3),
         ('local energy (mJ)', eng_local * 1e3, loc.energy_j * 1e3),
+        ('offload TX energy (mJ)', p_tx * t_tx * 1e3, off.e_tx * 1e3),
+        ('offload wait energy (mJ)', p_wait * (lat - t_tx - t_rx) * 1e3, off.e_idle * 1e3),
+        ('offload RX energy (mJ)', p_rx * t_rx * 1e3, off.e_rx * 1e3),
     ]
 
 

@@ -1,10 +1,18 @@
 """
 Hardware profiles based on published datasheets.
-ESP32-S3: https://www.espressif.com/sites/default/files/documentation/esp32-s3_datasheet_en.pdf
+ESP32-S3: https://documentation.espressif.com/esp32-s3_datasheet_en.pdf (v2.2)
 Raspberry Pi 4: https://datasheets.raspberrypi.com/rpi4/raspberry-pi-4-datasheet.pdf
 """
 
 from dataclasses import dataclass
+
+from src.config import (
+    WEARABLE_COMPUTE_DRAW_W,
+    WEARABLE_CPU_FREQ_HZ,
+    WEARABLE_TX_DRAW_W,
+    WEARABLE_TX_RADIATED_W,
+    WEARABLE_WAIT_DRAW_W,
+)
 
 
 @dataclass(frozen=True)
@@ -17,25 +25,35 @@ class HardwareProfile:
     ram_bytes: int            # available RAM
     bandwidth_hz: float       # channel bandwidth
     max_mips: float           # compute capacity in millions of instructions per second
+    # Battery draw (W) of a node that runs on a battery (the wearable only);
+    # 0 = not modelled.  tx_power_w above is the *radiated* power used by the
+    # rate equation; these are the supply-side powers used by the energy terms.
+    tx_draw_w: float = 0.0        # while transmitting
+    active_power_w: float = 0.0   # while computing locally (E = P * C_i / f)
 
 
 # ---------------------------------------------------------------------------
 # ESP32-S3: 240 MHz dual-core Xtensa LX7, Wi-Fi 802.11b/g/n
-# Datasheet: ESP32-S3 Technical Reference Manual v1.2
-#   - Active current at 240 MHz: ~100 mA @ 3.3 V → ~330 mW (conservative)
-#   - Wi-Fi TX max: 22.5 dBm ≈ 178 mW (per datasheet, section 5.2)
-#   - Modem-sleep idle: ~10 mA @ 3.3 V = 33 mW
-#   - Channel bandwidth: 20 MHz (802.11n HT20)
+# ESP32-S3 Series Datasheet v2.2 (2026-03-05); values and table numbers in
+# src/config.py ("Wearable power model"):
+#   - radiated TX 18.5 dBm (Table 6-2, 802.11n HT20 MCS7), rate equation only
+#   - TX draw 283 mA x 3.3 V (Table 5-7), RX 88 mA x 3.3 V (Table 5-7)
+#   - waiting: modem-sleep 240 MHz WAITI 47.6 mA x 3.3 V (Table 5-9)
+#   - local compute: 65.9 mA x 3.3 V x C_i / f (Table 5-9, 240 MHz, one core)
+#   - channel bandwidth: 20 MHz (802.11n HT20)
+# kappa is not used for the wearable (the datasheet gives the draw directly).
 # ---------------------------------------------------------------------------
 WEARABLE_ESP32 = HardwareProfile(
     name="ESP32-S3 Wearable",
-    cpu_freq_hz=240e6,
-    kappa=1e-27,              # typical CMOS effective capacitance for 40-nm process
-    tx_power_w=0.178,         # 22.5 dBm = 10^(22.5/10) mW ≈ 178 mW (Wi-Fi max)
-    idle_power_w=0.033,       # 10 mA × 3.3 V = 33 mW (modem-sleep listening)
-    ram_bytes=512 * 1024,     # 512 KB SRAM
+    cpu_freq_hz=WEARABLE_CPU_FREQ_HZ,
+    kappa=0.0,                # unused: local energy = active_power_w * C_i / f
+    tx_power_w=WEARABLE_TX_RADIATED_W,    # radiated, 18.5 dBm = 70.8 mW
+    idle_power_w=WEARABLE_WAIT_DRAW_W,    # 47.6 mA x 3.3 V = 157 mW
+    ram_bytes=512 * 1024,     # 512 KB SRAM (datasheet p. 5)
     bandwidth_hz=20e6,        # 20 MHz Wi-Fi HT20 channel
     max_mips=240.0,           # single-core effective MIPS ≈ clock (simple IPC=1 model)
+    tx_draw_w=WEARABLE_TX_DRAW_W,         # 283 mA x 3.3 V = 934 mW
+    active_power_w=WEARABLE_COMPUTE_DRAW_W,  # 65.9 mA x 3.3 V = 217 mW
 )
 
 # ---------------------------------------------------------------------------
@@ -48,7 +66,7 @@ WEARABLE_ESP32 = HardwareProfile(
 EDGE_GATEWAY_RPI4 = HardwareProfile(
     name="Raspberry Pi 4 Edge Gateway",
     cpu_freq_hz=1500e6,
-    kappa=1e-28,              # 28-nm CMOS, lower kappa than ESP32
+    kappa=1e-28,              # CMOS model, kept: no datasheet draw; not in any reported metric
     tx_power_w=0.0,           # gateway is the receiver; wearable pays TX energy
     idle_power_w=3.4,         # measured idle draw at 3.4 W (RPi4 with 8 GB)
     ram_bytes=8 * 1024 * 1024 * 1024,   # 8 GB LPDDR4
@@ -63,7 +81,7 @@ EDGE_GATEWAY_RPI4 = HardwareProfile(
 FOG_NODE = HardwareProfile(
     name="Fog Compute Node",
     cpu_freq_hz=2200e6,
-    kappa=1e-28,
+    kappa=1e-28,              # CMOS model, kept: no datasheet draw; not in any reported metric
     tx_power_w=0.0,           # fog node is receiver
     idle_power_w=5.0,         # ~5 W idle for compact server
     ram_bytes=16 * 1024 * 1024 * 1024,  # 16 GB
