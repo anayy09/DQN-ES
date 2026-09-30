@@ -425,7 +425,8 @@ def _conditions() -> List[dict]:
                                                           / 'mc_full_summary.json'],
           'scale': 1000}]
     for tag in ('rho0.3', 'rho0.6', 'rho0.85', 'mmpp2', 'mmpp2_rho0.3', 'mmpp2_rho0.6',
-                'mmpp2_rho0.85', 'cin0.05', 'cin0.1', 'cin0.2', 'cim0.1', 'cim0.2'):
+                'mmpp2_rho0.85', 'cin0.05', 'cin0.1', 'cin0.2', 'cim0.1', 'cim0.2',
+                'rayleigh', 'rayleigh_loss0.01', 'rayleigh_loss0.05'):
         c.append({'condition': f'sensitivity/{tag}',
                   'summaries': [R / 'sensitivity' / tag / 'mc_all_summary.json'],
                   'scale': 1000})
