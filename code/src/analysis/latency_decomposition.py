@@ -1,14 +1,12 @@
 """
-latency_decomposition.py — Fix F (Fix2.md): latency component breakdown.
+latency_decomposition.py — latency component breakdown.
 
-Decomposes mean end-to-end latency at N=1000 for DQN-ES and PSO into
-three components:
+Decomposes mean end-to-end latency at N=1000 for config.ROBUSTNESS_ARMS
+(G1-4: DQN-ES, ES-only, Random-K[K=3], q-mixed[q=0.5], Static-Tier) into
   (1) transmission latency  t_tx   = D_i / R_{i,j}
-  (2) queuing delay         t_queue (M/M/1 sojourn)
+  (2) queuing delay         t_queue (FIFO wait, D16)
   (3) compute at destination t_proc = C_i / f_j
-
-Clarifies whether DQN-ES's latency penalty over PSO comes from routing to
-a slower node (compute component) or a more distant node (transmission).
+  (4) propagation and (5) result download (E9)
 
 Outputs
 -------
@@ -40,19 +38,20 @@ from src.config import (
     N_FOG_NODES,
     N_WEARABLES,
     PRIMARY_SCALE,
+    ROBUSTNESS_ARMS,
 )
 from src.simulation.replicate import build_synthetic_replicate, run_scheduler
 
-# Algorithms for decomposition (the two main comparators per Fix F spec)
-DECOMP_ALGORITHMS = ['DQN-ES', 'PSO', 'PSO']
+# Algorithms for decomposition: the robustness arms (G1-4)
+DECOMP_ALGORITHMS = list(ROBUSTNESS_ARMS)
 
 
 def _run_cell(payload: tuple) -> tuple:
     """payload = (alg_name, run_id, n_tasks)"""
     alg_name, run_id, n_tasks = payload
 
-    from src.config import get_full_algorithm_registry
-    registry = get_full_algorithm_registry()
+    from src.config import get_experiment_registry, get_full_algorithm_registry
+    registry = {**get_full_algorithm_registry(), **get_experiment_registry()}
     if alg_name not in registry:
         return alg_name, run_id, None
 

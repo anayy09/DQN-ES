@@ -221,7 +221,8 @@ def build_steps(args, results_dir: Path, figures_dir: Path, data_dir: Path) -> l
             raise RuntimeError('model checks failed')
     steps += [
         {'name': 'decomposition', 'skip': args.skip_decomp,
-         'driver': 'latency_decomposition', 'scales': [primary], 'n_runs': n,
+         'driver': 'latency_decomposition', 'arms': ROBUSTNESS_ARMS,
+         'scales': [primary], 'n_runs': n,
          'run': decomp},
         {'name': 'routing', 'skip': args.skip_routing,
          'driver': 'dqn_routing_analysis', 'scales': [primary], 'n_runs': n,
