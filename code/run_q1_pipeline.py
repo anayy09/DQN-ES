@@ -24,6 +24,7 @@ Steps (skip flags in brackets):
   weight_highci        weight-scheme ablation, all-high CI           [--skip-highci]
   mitbih               MIT-BIH trace, main + experiment arms         [--skip-mitbih]
   privacy_guard        Privacy Guard on MedSec-25                    [--skip-privacy]
+  ci_module            CI Random Forest + SHAP (xai_ci_module)       [--skip-cimodule]
   overhead             E4/E13 decision-time split (serial)           [--skip-overhead]
   decomposition        latency decomposition                         [--skip-decomp]
   routing              DQN-only routing distribution                 [--skip-routing]
@@ -205,6 +206,14 @@ def build_steps(args, results_dir: Path, figures_dir: Path, data_dir: Path) -> l
                   'n_runs': min(SCALING_TIMING_RUNS, n), 'workers': 1,
                   'run': overhead})
 
+    def ci_module():
+        from src.analysis.xai_ci_module import run_xai_analysis
+        run_xai_analysis(str(data_dir), str(results_dir), str(figures_dir))
+    steps.append({'name': 'ci_module', 'skip': args.skip_cimodule,
+                  'driver': 'xai_ci_module',
+                  'description': 'CI Random Forest R2, SHAP means, label construction',
+                  'summary_file': 'shap_feature_importance.json', 'run': ci_module})
+
     def decomp():
         from src.analysis.latency_decomposition import run_decomposition
         run_decomposition(results_dir, n_runs=n, n_tasks=primary, workers=w)
@@ -287,7 +296,8 @@ def main():
                    help='Write declared_arms.json and exit')
     for flag in ('mc', 'experiments', 'stats', 'sensitivity', 'scaling',
                  'workload', 'channel', 'warm', 'cinoise', 'weight', 'highci', 'mitbih',
-                 'privacy', 'overhead', 'decomp', 'routing', 'checks', 'figures'):
+                 'privacy', 'cimodule', 'overhead', 'decomp', 'routing', 'checks',
+                 'figures'):
         p.add_argument(f'--skip-{flag}', action='store_true')
     args = p.parse_args()
 
