@@ -32,6 +32,14 @@ Commands (from code/):
   python -m src.analysis.post_run paired --pairs 'A|B'... --tag T --out DIR
       Exploratory: per-arm means (bootstrap CI) and paired HL differences for
       each pair in every condition of the d17a list.
+  python -m src.analysis.post_run e5cv30 --raw-dirs DIR... --out DIR
+      Secondary (P2b): E5 primary config, 5-fold CV grouped by replicate over
+      all replicates (n = 30 test AUCs per scheduler) + D17b on those.
+  python -m src.analysis.post_run aucmatched --e5-dir DIR --summaries F... --scale N --out DIR
+      Secondary (P2b): D17(a) form with adversary AUC (declared split, CV30);
+      --scale 0 reads flat {arm: cell} summaries (MIT-BIH).
+  python -m src.analysis.post_run lambdamech --raw-dirs DIR... --out DIR
+      Secondary (P2b): destination distribution by CI tier, lambda_P arms.
   python -m src.analysis.post_run d17a --out DIR
       Exploratory: D17(a) matched-latency excess in every condition where
       DQN-ES and a frontier exist, with the reason for each exclusion.
@@ -86,11 +94,20 @@ def index_logs(raw_dirs: List[Path]) -> Dict[str, Dict[int, Path]]:
     return idx
 
 
-def load_runs(files: Dict[int, Path]) -> Dict[int, List[dict]]:
+# Columns the E5 features, labels and MI need (keeps MIT-BIH-size logs in memory)
+E5_COLUMNS = ('algorithm', 'device_id', 'timestamp', 'assigned_node', 'ci_tier',
+              'latency_ms', 'payload_bits')
+
+
+def load_runs(files: Dict[int, Path], columns=None) -> Dict[int, List[dict]]:
     out = {}
     for run_id, f in sorted(files.items()):
         with gzip.open(f, 'rt', encoding='utf-8') as fh:
-            rows = list(csv.DictReader(fh))
+            rd = csv.DictReader(fh)
+            if columns:
+                rows = [{k: r[k] for k in columns} for r in rd]
+            else:
+                rows = list(rd)
         if rows:
             out[run_id] = rows
     return out
@@ -99,7 +116,7 @@ def load_runs(files: Dict[int, Path]) -> Dict[int, List[dict]]:
 def _vocab_and_hash(files: Dict[int, Path]):
     """Destinations used and a hash of the destination trace per run."""
     from src.analysis.e5_adversary import _dest
-    runs = load_runs(files)
+    runs = load_runs(files, ('device_id', 'assigned_node'))
     v = set()
     h = hashlib.sha256()
     for run_id, rows in sorted(runs.items()):
@@ -124,7 +141,7 @@ def _e5_worker(job):
     from src.analysis.e5_adversary import (FEATURE_SETS, _cfg, build_samples,
                                            evaluate, mi_by_run)
     cfg = _cfg()
-    runs = load_runs(files)
+    runs = load_runs(files, E5_COLUMNS)
     wins = build_samples(runs, cfg['context'], vocab)
     res = []
     for feat in FEATURE_SETS:
@@ -655,10 +672,194 @@ def cmd_paired(pairs: List[str], out_dir: Path, tag: str) -> None:
 
 
 # --------------------------------------------------------------------------
+# E5 secondary analyses (P2b; not pre-declared)
+# --------------------------------------------------------------------------
+
+def _e5_cv30_worker(job):
+    """Primary features/classifier; 5-fold GroupKFold over every replicate."""
+    alg, files, vocab = job
+    os.environ.setdefault('OMP_NUM_THREADS', '2')
+    from sklearn.model_selection import GroupKFold
+    from src.analysis.e5_adversary import _auc, _cfg, _make, build_samples
+    cfg = _cfg()
+    runs = load_runs(files, E5_COLUMNS)
+    wins = build_samples(runs, cfg['context'], vocab)
+    feat = cfg['primary_features']
+    X = np.array([w['x'][feat] for w in wins], dtype=float)
+    y = np.array([w['y'] for w in wins])
+    g = np.array([w['run_id'] for w in wins])
+    per, fold_of = {}, {}
+    pooled_y, pooled_p = [], []
+    for k, (tr, te) in enumerate(GroupKFold(n_splits=5).split(X, y, g)):
+        m = _make(cfg['primary_classifier'], cfg['seed']).fit(X[tr], y[tr])
+        p = m.predict_proba(X[te])[:, 1]
+        pooled_y += y[te].tolist()
+        pooled_p += p.tolist()
+        for r in sorted(set(g[te].tolist())):
+            sel = g[te] == r
+            per[int(r)] = _auc(y[te][sel], p[sel])
+            fold_of[int(r)] = k
+    return alg, per, fold_of, _auc(pooled_y, pooled_p)
+
+
+def cmd_e5_cv30(raw_dirs: List[Path], out_dir: Path, workers: int,
+                algorithms: Optional[List[str]] = None) -> None:
+    """
+    Secondary (P2b, not declared): E5 primary configuration with 5-fold
+    cross-validation grouped by replicate over all replicates, so every
+    replicate contributes one test AUC (n = 30 per scheduler). Then the
+    D17b family on those AUCs as a sensitivity check.
+    """
+    from concurrent.futures import ProcessPoolExecutor
+    import multiprocessing as mp
+    from src.analysis.e5_adversary import mean_bootstrap_ci
+    from src.analysis.statistical_tests import _write_rows, run_family_tests
+    from src.config import STAT_BOOT_N, STAT_BOOT_SEED, STAT_CI_LEVEL
+    from src.simulation.episode_log import _long_path
+    idx = index_logs(raw_dirs)
+    if algorithms:
+        idx = {a: f for a, f in idx.items() if a in algorithms}
+    algs = sorted(idx)
+    vocab_set = set()
+    for a in algs:
+        vocab_set |= _vocab_and_hash(idx[a])[0]
+    vocab = ['local'] + sorted(d for d in vocab_set if d != 'local')
+    res = {}
+    with ProcessPoolExecutor(max_workers=workers, mp_context=mp.get_context('spawn')) as ex:
+        for alg, per, fold_of, pooled in ex.map(_e5_cv30_worker,
+                                                [(a, idx[a], vocab) for a in algs]):
+            res[alg] = (per, fold_of, pooled)
+            print(f'  [E5-CV30] done {alg}', flush=True)
+    out_dir = Path(out_dir)
+    _long_path(out_dir).mkdir(parents=True, exist_ok=True)
+    cells, rows = {}, []
+    for i, a in enumerate(algs):
+        per, fold_of, pooled = res[a]
+        ids = sorted(k for k, v in per.items() if not math.isnan(v))
+        v = [per[k] for k in ids]
+        cells[a] = {'adversary_auc': {'samples': v, 'run_ids': ids}}
+        lo, hi = mean_bootstrap_ci(v, STAT_BOOT_N, STAT_CI_LEVEL, STAT_BOOT_SEED + i)
+        rows.append({'scheduler': a, 'n_test_runs': len(ids),
+                     'auc_mean_per_run': float(np.mean(v)), 'ci_lo': lo, 'ci_hi': hi,
+                     'pooled_cv_auc': pooled,
+                     'label': 'secondary (P2b): 5-fold GroupKFold over all replicates'})
+        print(f"  {a:<18} AUC {np.mean(v):.3f} [{lo:.3f}, {hi:.3f}] n={len(ids)}")
+    _long_path(out_dir / 'adversary_auc_cv30_by_replicate.json').write_text(json.dumps(
+        {'config': 'E5 primary features/classifier; GroupKFold(5) by replicate, '
+                   'every replicate tested once (secondary, P2b)',
+         'folds': {a: res[a][1] for a in algs}, 'cells': cells}, indent=1), encoding='utf-8')
+    _csv(out_dir / 'adversary_auc_cv30_ci.csv', rows)
+    fam = run_family_tests(cells, 'privacy_inference')
+    for r in fam:
+        r['family'] = 'privacy_inference_cv30 (sensitivity, not declared)'
+    _write_rows(fam, out_dir / 'stat_tests_privacy_inference_cv30.csv')
+    for r in fam:
+        if r['status'] == 'tested':
+            print(f"  D17b-CV30 {r['comparator']:<14} d={r['hl_diff']:+.4f} "
+                  f"[{r['ci_lo']:+.4f}, {r['ci_hi']:+.4f}] p_holm={r['p_holm']:.4f} n={r['n_pairs']}")
+
+
+def cmd_auc_matched(e5_dir: Path, summaries: List[Path], scale: int, out_dir: Path) -> None:
+    """
+    Secondary (P2b): the D17(a) form with adversary AUC as y. Per replicate,
+    interpolate the q-mixed and lambda_P curves' AUC at DQN-ES's latency;
+    median over replicates with a replicate-bootstrap CI. Positive = DQN-ES
+    AUC above the frontier. Run on the declared test split (n <= 10) and on
+    the CV30 AUCs (n <= 30) when present. scale 0 = flat {arm: cell} files.
+    """
+    from src.analysis.statistical_tests import (_load_cells, matched_latency_excess,
+                                                median_bootstrap_ci)
+    from src.config import MATCHED_LATENCY as ML, STAT_BOOT_N, STAT_BOOT_SEED, STAT_CI_LEVEL
+    from src.simulation.episode_log import _long_path
+    if scale:
+        base = _load_cells(summaries, scale)
+    else:
+        base = {}
+        for p in summaries:
+            base.update(json.loads(Path(p).read_text(encoding='utf-8')))
+    sources = [('declared_split', 'adversary_auc_by_replicate.json')]
+    if _long_path(e5_dir / 'adversary_auc_cv30_by_replicate.json').exists():
+        sources.append(('cv30', 'adversary_auc_cv30_by_replicate.json'))
+    rows = []
+    for sname, fn in sources:
+        auc = json.loads(_long_path(e5_dir / fn).read_text(encoding='utf-8'))['cells']
+        cell = {a: dict(base[a], adversary_auc=auc[a]['adversary_auc'])
+                for a in base if a in auc}
+        if 'q-mixed[q=0]' not in cell and 'ES-only' in cell:
+            cell['q-mixed[q=0]'] = cell['ES-only']
+        if 'q-mixed[q=1]' not in cell and 'Random-K[K=3]' in cell:
+            cell['q-mixed[q=1]'] = cell['Random-K[K=3]']
+        for fname, arms in ML['frontiers'].items():
+            present = [a for a in arms if a in cell]
+            row = {'auc_source': sname, 'frontier': fname, 'y_metric': 'adversary_auc',
+                   'frontier_points': len(present), 'arms_used': ';'.join(present),
+                   'label': 'secondary (P2b), not pre-declared'}
+            if 'DQN-ES' not in cell or len(present) < 2:
+                row['status'] = 'not computable (frontier arms absent)'
+                rows.append(row)
+                continue
+            res = matched_latency_excess(cell, 'DQN-ES', arms, ML['x_metric'], 'adversary_auc')
+            ex = list(res['excess_by_run'].values())
+            lo, hi = median_bootstrap_ci(ex, STAT_BOOT_N, STAT_CI_LEVEL,
+                                         STAT_BOOT_SEED + len(rows))
+            reasons = _exclusion_reasons(cell, 'DQN-ES', arms, ML['x_metric'], 'adversary_auc')
+            row.update(status='ok', n_replicates=len(ex), n_excluded=len(res['excluded_runs']),
+                       median_excess=float(np.median(ex)) if ex else float('nan'),
+                       ci_lo=lo, ci_hi=hi,
+                       excluded_runs=';'.join(map(str, res['excluded_runs'])),
+                       exclusion_reasons='; '.join(
+                           f'run {r}: {reasons.get(r, "no test AUC for this replicate")}'
+                           for r in res['excluded_runs']))
+            rows.append(row)
+            print(f"  {sname:<15} {fname:<9} AUC excess {row['median_excess']:+.4f} "
+                  f"[{lo:+.4f}, {hi:+.4f}] n={len(ex)} excl={row['n_excluded']}")
+    _long_path(Path(out_dir)).mkdir(parents=True, exist_ok=True)
+    _csv(Path(out_dir) / 'auc_matched_latency.csv', rows)
+
+
+LAMBDA_MECH_ARMS = ['ES-only[lP=0.5]', 'ES-only[lP=1]', 'ES-only[lP=3]', 'ES-only[lP=10]']
+
+
+def cmd_lambda_mech(raw_dirs: List[Path], out_dir: Path) -> None:
+    """
+    Secondary (P2b): destination distribution by true CI tier and the pooled
+    I(dest; tier) for the lambda_P arms, over all replicates.
+    """
+    from src.analysis.e5_adversary import TIERS, _dest, mutual_information
+    from src.simulation.episode_log import _long_path
+    idx = index_logs(raw_dirs)
+    rows = []
+    for a in LAMBDA_MECH_ARMS:
+        if a not in idx:
+            continue
+        runs = load_runs(idx[a], ('device_id', 'assigned_node', 'ci_tier'))
+        cnt = defaultdict(lambda: defaultdict(int))
+        dests, tiers = [], []
+        for rs in runs.values():
+            for r in rs:
+                d = _dest(r)
+                cnt[r['ci_tier']][d] += 1
+                dests.append(d)
+                tiers.append(r['ci_tier'])
+        mi_pooled = mutual_information(dests, tiers)
+        allds = sorted({d for t in cnt for d in cnt[t]})
+        for t in TIERS:
+            n = sum(cnt[t].values())
+            rows.append({'scheduler': a, 'ci_tier': t, 'n_tasks': n,
+                         **{f'p_{d}': cnt[t][d] / n if n else 0.0 for d in allds},
+                         'mi_pooled_bits': mi_pooled,
+                         'label': 'secondary (P2b), not pre-declared'})
+            print(f"  {a:<16} {t:<6} n={n:<6} " + ' '.join(
+                f"{d}={cnt[t][d] / n:.3f}" for d in allds) + f"  MI(pooled)={mi_pooled:.4f}")
+    _long_path(Path(out_dir)).mkdir(parents=True, exist_ok=True)
+    _csv(Path(out_dir) / 'lambda_p_destination_by_tier.csv', rows)
+
+# --------------------------------------------------------------------------
 
 def main():
     p = argparse.ArgumentParser(description='post-run analyses (P2)')
-    p.add_argument('command', choices=['e5', 'corr', 'e8', 'e11', 'd17a', 'dominance', 'paired'])
+    p.add_argument('command', choices=['e5', 'corr', 'e8', 'e11', 'd17a', 'dominance', 'paired',
+                                          'e5cv30', 'aucmatched', 'lambdamech'])
     p.add_argument('--raw-dirs', nargs='+', default=[])
     p.add_argument('--out', required=True)
     p.add_argument('--algorithms', nargs='+', default=None)
@@ -671,16 +872,22 @@ def main():
     p.add_argument('--step', type=str, default=None,
                    help='manifest step name (default post_<command>)')
     p.add_argument('--results-dir', type=str, default=str(_ROOT / 'results'))
+    p.add_argument('--label', type=str, default=None,
+                   help="recorded in the manifest, e.g. 'secondary (P2b), not pre-declared'")
     a = p.parse_args()
     out = Path(a.out)
+    def rel(x):
+        x = Path(x).resolve()
+        try:
+            return x.relative_to(_ROOT).as_posix()
+        except ValueError:
+            return x.as_posix()
     params = {'command': a.command,
-              'raw_dirs': [Path(d).resolve().relative_to(_ROOT).as_posix()
-                           for d in a.raw_dirs],
-              'out': out.resolve().relative_to(_ROOT).as_posix(),
+              'raw_dirs': [rel(d) for d in a.raw_dirs],
+              'out': rel(out),
               'algorithms': a.algorithms, 'e5_dir': a.e5_dir,
-              'summaries': [Path(s).resolve().relative_to(_ROOT).as_posix()
-                            for s in a.summaries], 'scale': a.scale,
-              'pairs': a.pairs, 'tag': a.tag}
+              'summaries': [rel(s) for s in a.summaries], 'scale': a.scale,
+              'pairs': a.pairs, 'tag': a.tag, 'label': a.label}
     with _manifest(Path(a.results_dir), a.step or f'post_{a.command}', params):
         if a.command == 'e5':
             cmd_e5([Path(d) for d in a.raw_dirs], out, a.workers, a.algorithms)
@@ -697,6 +904,12 @@ def main():
             cmd_dominance([Path(s) for s in a.summaries], a.scale, out)
         elif a.command == 'paired':
             cmd_paired(a.pairs, out, a.tag)
+        elif a.command == 'e5cv30':
+            cmd_e5_cv30([Path(d) for d in a.raw_dirs], out, a.workers, a.algorithms)
+        elif a.command == 'aucmatched':
+            cmd_auc_matched(Path(a.e5_dir), [Path(s) for s in a.summaries], a.scale, out)
+        elif a.command == 'lambdamech':
+            cmd_lambda_mech([Path(d) for d in a.raw_dirs], out)
 
 
 if __name__ == '__main__':
