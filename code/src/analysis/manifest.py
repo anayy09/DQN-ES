@@ -86,7 +86,7 @@ def config_hash() -> str:
 def _packages() -> dict:
     from importlib import metadata
     out = {}
-    for p in ('numpy', 'scipy', 'scikit-learn', 'pandas', 'matplotlib', 'wfdb'):
+    for p in ('numpy', 'scipy', 'scikit-learn', 'shap', 'pandas', 'matplotlib', 'wfdb'):
         try:
             out[p] = metadata.version(p)
         except metadata.PackageNotFoundError:
