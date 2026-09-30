@@ -29,6 +29,9 @@ Commands (from code/):
       Exploratory: paired DQN-ES vs Static-Tier, ES-only[lP], q-mixed and
       Random-K on every metric (HL difference, bootstrap CI, exact p, Holm
       over this table only).
+  python -m src.analysis.post_run paired --pairs 'A|B'... --tag T --out DIR
+      Exploratory: per-arm means (bootstrap CI) and paired HL differences for
+      each pair in every condition of the d17a list.
   python -m src.analysis.post_run d17a --out DIR
       Exploratory: D17(a) matched-latency excess in every condition where
       DQN-ES and a frontier exist, with the reason for each exclusion.
@@ -596,10 +599,66 @@ def cmd_dominance(summaries: List[Path], scale: int, out_dir: Path) -> None:
 
 
 # --------------------------------------------------------------------------
+# Paired arm-vs-arm differences in every condition (exploratory)
+# --------------------------------------------------------------------------
+
+PAIRED_ALIASES = {'Random-K[K=3]': 'q-mixed[q=1]', 'ES-only': 'q-mixed[q=0]'}
+
+
+def cmd_paired(pairs: List[str], out_dir: Path, tag: str) -> None:
+    """
+    For each condition of _conditions() and each 'A|B' pair present there:
+    per-arm mean with a replicate-bootstrap CI and the paired HL difference
+    A - B with its CI and exact p (no multiplicity correction; exploratory).
+    Random-K[K=3] / ES-only fall back to their identities q-mixed[q=1] / [q=0].
+    """
+    from src.analysis.e5_adversary import mean_bootstrap_ci
+    from src.analysis.paired_stats import paired_comparison, samples_by_run
+    from src.config import STAT_BOOT_N, STAT_BOOT_SEED, STAT_CI_LEVEL
+    rows = []
+    for cond in _conditions():
+        if not all(Path(p).exists() for p in cond['summaries']):
+            continue
+        cell = _load_condition(cond)
+        for pair in pairs:
+            a, b = pair.split('|')
+            names = []
+            for x in (a, b):
+                if x not in cell and PAIRED_ALIASES.get(x) in cell:
+                    x = PAIRED_ALIASES[x]
+                names.append(x)
+            if not all(x in cell for x in names):
+                continue
+            for m in DOMINANCE_METRICS:
+                if m not in cell[names[0]] or m not in cell[names[1]]:
+                    continue
+                sa, sb = samples_by_run(cell[names[0]][m]), samples_by_run(cell[names[1]][m])
+                seed = STAT_BOOT_SEED + len(rows)
+                la, ha = mean_bootstrap_ci(list(sa.values()), STAT_BOOT_N, STAT_CI_LEVEL, seed)
+                lb, hb = mean_bootstrap_ci(list(sb.values()), STAT_BOOT_N, STAT_CI_LEVEL, seed + 1)
+                res = paired_comparison(sa, sb, n_boot=STAT_BOOT_N, level=STAT_CI_LEVEL, seed=seed)
+                rows.append({'condition': cond['condition'], 'scale': cond['scale'] or 'trace',
+                             'a': names[0], 'b': names[1], 'metric': m,
+                             'n_pairs': res['n_pairs'],
+                             'mean_a': float(np.mean(list(sa.values()))), 'mean_a_ci_lo': la,
+                             'mean_a_ci_hi': ha,
+                             'mean_b': float(np.mean(list(sb.values()))), 'mean_b_ci_lo': lb,
+                             'mean_b_ci_hi': hb,
+                             'hl_diff_a_minus_b': res['hl_diff'], 'ci_lo': res['ci_lo'],
+                             'ci_hi': res['ci_hi'], 'p_exact': res.get('p_exact'),
+                             'identical': res['identical'],
+                             'label': 'exploratory (not declared; no multiplicity correction)'})
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _csv(out_dir / f'paired_{tag}.csv', rows)
+    print(f'[PAIRED] {len(rows)} rows -> {out_dir / f"paired_{tag}.csv"}')
+
+
+# --------------------------------------------------------------------------
 
 def main():
     p = argparse.ArgumentParser(description='post-run analyses (P2)')
-    p.add_argument('command', choices=['e5', 'corr', 'e8', 'e11', 'd17a', 'dominance'])
+    p.add_argument('command', choices=['e5', 'corr', 'e8', 'e11', 'd17a', 'dominance', 'paired'])
     p.add_argument('--raw-dirs', nargs='+', default=[])
     p.add_argument('--out', required=True)
     p.add_argument('--algorithms', nargs='+', default=None)
@@ -607,6 +666,8 @@ def main():
     p.add_argument('--e5-dir', type=str, default=None)
     p.add_argument('--summaries', nargs='+', default=[])
     p.add_argument('--scale', type=int, default=1000)
+    p.add_argument('--pairs', nargs='+', default=[], help="'A|B' arm pairs (paired)")
+    p.add_argument('--tag', type=str, default='pairs')
     p.add_argument('--step', type=str, default=None,
                    help='manifest step name (default post_<command>)')
     p.add_argument('--results-dir', type=str, default=str(_ROOT / 'results'))
@@ -618,7 +679,8 @@ def main():
               'out': out.resolve().relative_to(_ROOT).as_posix(),
               'algorithms': a.algorithms, 'e5_dir': a.e5_dir,
               'summaries': [Path(s).resolve().relative_to(_ROOT).as_posix()
-                            for s in a.summaries], 'scale': a.scale}
+                            for s in a.summaries], 'scale': a.scale,
+              'pairs': a.pairs, 'tag': a.tag}
     with _manifest(Path(a.results_dir), a.step or f'post_{a.command}', params):
         if a.command == 'e5':
             cmd_e5([Path(d) for d in a.raw_dirs], out, a.workers, a.algorithms)
@@ -633,6 +695,8 @@ def main():
             cmd_d17a(out)
         elif a.command == 'dominance':
             cmd_dominance([Path(s) for s in a.summaries], a.scale, out)
+        elif a.command == 'paired':
+            cmd_paired(a.pairs, out, a.tag)
 
 
 if __name__ == '__main__':
