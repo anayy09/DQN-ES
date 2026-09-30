@@ -1,0 +1,114 @@
+[
+ {
+  "check": "uplink t_tx (ms)",
+  "expected": 6.508461141892035,
+  "simulated": 6.508461141892035,
+  "rel_error": 0.0,
+  "tolerance": 1e-09,
+  "pass": true
+ },
+ {
+  "check": "propagation t_prop (ms)",
+  "expected": 4.9999999999999996e-05,
+  "simulated": 4.9999999999999996e-05,
+  "rel_error": 0.0,
+  "tolerance": 1e-09,
+  "pass": true
+ },
+ {
+  "check": "edge compute t_proc (ms)",
+  "expected": 100.0,
+  "simulated": 100.0,
+  "rel_error": 0.0,
+  "tolerance": 1e-09,
+  "pass": true
+ },
+ {
+  "check": "downlink t_dl (ms)",
+  "expected": 0.013429110917753555,
+  "simulated": 0.013429110917753555,
+  "rel_error": 0.0,
+  "tolerance": 1e-09,
+  "pass": true
+ },
+ {
+  "check": "offload latency (ms)",
+  "expected": 106.5219402528098,
+  "simulated": 106.5219402528098,
+  "rel_error": 0.0,
+  "tolerance": 1e-09,
+  "pass": true
+ },
+ {
+  "check": "offload wearable energy (mJ)",
+  "expected": 4.462394677067298,
+  "simulated": 4.462394677067298,
+  "rel_error": 0.0,
+  "tolerance": 1e-09,
+  "pass": true
+ },
+ {
+  "check": "local latency (ms)",
+  "expected": 625.0,
+  "simulated": 625.0,
+  "rel_error": 0.0,
+  "tolerance": 1e-09,
+  "pass": true
+ },
+ {
+  "check": "local energy (mJ)",
+  "expected": 8.64,
+  "simulated": 8.64,
+  "rel_error": 0.0,
+  "tolerance": 1e-09,
+  "pass": true
+ },
+ {
+  "check": "M/M/1 mean wait rho=0.3 (ms)",
+  "expected": 42.857142857142854,
+  "simulated": 42.190983769576235,
+  "rel_error": 0.015543712043221117,
+  "tolerance": 0.05,
+  "pass": true
+ },
+ {
+  "check": "M/D/1 mean wait rho=0.3 (ms)",
+  "expected": 21.428571428571427,
+  "simulated": 21.205449134001636,
+  "rel_error": 0.010412373746590238,
+  "tolerance": 0.05,
+  "pass": true
+ },
+ {
+  "check": "M/M/1 mean wait rho=0.6 (ms)",
+  "expected": 150.0,
+  "simulated": 150.2782014968931,
+  "rel_error": 0.0018546766459540246,
+  "tolerance": 0.05,
+  "pass": true
+ },
+ {
+  "check": "M/D/1 mean wait rho=0.6 (ms)",
+  "expected": 75.0,
+  "simulated": 75.11548641145906,
+  "rel_error": 0.0015398188194541262,
+  "tolerance": 0.05,
+  "pass": true
+ },
+ {
+  "check": "M/M/1 mean wait rho=0.85 (ms)",
+  "expected": 566.6666666666666,
+  "simulated": 577.4951386885664,
+  "rel_error": 0.01910906827394075,
+  "tolerance": 0.05,
+  "pass": true
+ },
+ {
+  "check": "M/D/1 mean wait rho=0.85 (ms)",
+  "expected": 283.33333333333326,
+  "simulated": 288.9228261927528,
+  "rel_error": 0.01972762185677479,
+  "tolerance": 0.05,
+  "pass": true
+ }
+]

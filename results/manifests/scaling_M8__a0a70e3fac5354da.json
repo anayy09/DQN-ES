@@ -1,0 +1,103 @@
+{
+ "run_id": "a0a70e3fac5354da",
+ "step": "scaling_M8",
+ "code": {
+  "git_commit": "4e8ab8346ffeaa1aca21e47976fc88f1a0f2a2b6",
+  "git_tag": "round2-freeze-1",
+  "git_dirty": true,
+  "git_dirty_paths": [
+   ".gitignore",
+   "results/mc_full_results.json",
+   "results/mc_full_summary.json",
+   "results/table3_n1000.csv",
+   "results/table3_n1000_with_pvals.csv",
+   "results/table3_stat_tests.csv"
+  ],
+  "entrypoint": "code/run_q1_pipeline.py --n_runs 30 --workers 7 --results-dir results --figures-dir results/figures_freeze1"
+ },
+ "config": {
+  "resolved_sha256": "d3fd1b8eeb2a28fafa5ceba79da7c02a5d55ac24fdc78b973ca76fcbf46cea95",
+  "params": {
+   "name": "scaling_M8",
+   "driver": "run_full_experiments",
+   "description": "E4 fog-node count",
+   "registry": "all",
+   "arms": [
+    "DQN-ES",
+    "ES-only",
+    "Random-K[K=3]",
+    "q-mixed[q=0.5]",
+    "Static-Tier"
+   ],
+   "scales": [
+    1000
+   ],
+   "n_runs": 30,
+   "condition": {},
+   "n_fog_nodes": 8,
+   "out": "scaling/M8",
+   "summary": "scaling/M8/mc_all_summary.json"
+  }
+ },
+ "seeds": {
+  "rule": "replicate_seed(r, N) = 42 + 1000 r + N for tasks and scheduler; topology/env/arrival/ci_noise/pretrain streams = SeedSequence(replicate_seed(r, N)).spawn(5)",
+  "base_seeds": {
+   "1000": [
+    1042,
+    2042,
+    3042,
+    4042,
+    5042,
+    6042,
+    7042,
+    8042,
+    9042,
+    10042,
+    11042,
+    12042,
+    13042,
+    14042,
+    15042,
+    16042,
+    17042,
+    18042,
+    19042,
+    20042,
+    21042,
+    22042,
+    23042,
+    24042,
+    25042,
+    26042,
+    27042,
+    28042,
+    29042,
+    30042
+   ]
+  }
+ },
+ "data": {},
+ "env": {
+  "cpu": "Intel(R) Core(TM) Ultra 7 266V",
+  "logical_cpus": 8,
+  "os": "win32",
+  "python": "3.14.6",
+  "numpy": "2.4.6",
+  "packages": {
+   "numpy": "2.4.6",
+   "scipy": "1.17.1",
+   "scikit-learn": "1.9.1",
+   "pandas": "3.0.3",
+   "matplotlib": "3.11.0"
+  }
+ },
+ "determinism": {
+  "claimed_deterministic": true,
+  "note": "all RNGs seeded per replicate; bitwise equality is expected on the same machine and library versions; BLAS reduction order may differ across machines"
+ },
+ "outputs": [],
+ "started_utc": "2026-09-29T21:08:06Z",
+ "finished_utc": "2026-09-29T21:08:15Z",
+ "wall_s": 8.9,
+ "status": "finished"
+}

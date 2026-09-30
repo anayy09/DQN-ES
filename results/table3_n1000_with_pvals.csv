@@ -1,9 +1,9 @@
-algorithm,avg_latency_ms_mean±std (p_corr vs DQN-ES),avg_energy_mj_mean±std (p_corr vs DQN-ES),avg_privacy_risk_mean±std (p_corr vs DQN-ES),sla_violation_pct_mean±std (p_corr vs DQN-ES)
-DQN-ES,71.720 ± 2.803,7.198 ± 0.368,0.396 ± 0.004,0.600 ± 0.203
-PSO,66.213 ± 2.538 (p=4.58e-07*),6.061 ± 0.308 (p=1.71e-09*),0.427 ± 0.006 (p=5.74e-10*),0.223 ± 0.133 (p=5.91e-07*)
-ACO,86.043 ± 4.438 (p=5.74e-10*),11.912 ± 0.898 (p=5.74e-10*),0.697 ± 0.015 (p=5.74e-10*),0.003 ± 0.018 (p=6.04e-10*)
-HS-HHO,65.913 ± 2.558 (p=2.30e-07*),5.979 ± 0.313 (p=1.05e-09*),0.427 ± 0.006 (p=5.74e-10*),0.223 ± 0.133 (p=5.91e-07*)
-ES-only,65.913 ± 2.558 (p=2.30e-07*),5.979 ± 0.313 (p=1.05e-09*),0.427 ± 0.006 (p=5.74e-10*),0.223 ± 0.133 (p=5.91e-07*)
-DQN-only,228.264 ± 15.314 (p=5.74e-10*),34.947 ± 2.709 (p=5.74e-10*),0.303 ± 0.020 (p=5.74e-10*),6.200 ± 0.562 (p=5.74e-10*)
+algorithm,avg_latency_ms: mean ± sd; HL d [95% CI]; p_holm,avg_energy_mj: mean ± sd; HL d [95% CI]; p_holm,avg_privacy_risk: mean ± sd; HL d [95% CI]; p_holm,sla_violation_pct: mean ± sd; HL d [95% CI]; p_holm
+DQN-ES,77.517 ± 6.025,8.109 ± 1.194,0.344 ± 0.019,0.720 ± 0.369
+PSO,"68.922 ± 2.873; d=7.699 [6.158, 9.852]; p=3.73e-08*","6.312 ± 0.358; d=1.575 [1.333, 1.968]; p=3.73e-08*","0.382 ± 0.029; d=-0.037 [-0.046, -0.029]; p=3.73e-08*","0.153 ± 0.156; d=0.600 [0.450, 0.700]; p=1.19e-07*"
+ACO,"104.179 ± 6.197; d=-27.251 [-30.382, -24.026]; p=3.73e-08*","12.579 ± 0.866; d=-4.595 [-5.106, -4.052]; p=3.73e-08*","0.691 ± 0.016; d=-0.346 [-0.359, -0.338]; p=3.73e-08*","0.017 ± 0.037; d=0.750 [0.550, 0.850]; p=7.45e-08*"
+HS-HHO,"68.791 ± 2.893; d=7.802 [6.283, 9.976]; p=3.73e-08*","6.275 ± 0.366; d=1.615 [1.357, 2.012]; p=3.73e-08*","0.383 ± 0.029; d=-0.038 [-0.047, -0.030]; p=3.73e-08*","0.157 ± 0.167; d=0.550 [0.450, 0.700]; p=1.19e-07*"
+ES-only,"68.791 ± 2.893; d=7.802 [6.279, 9.983]; p=3.73e-08*","6.275 ± 0.366; d=1.615 [1.353, 2.012]; p=3.73e-08*","0.383 ± 0.029; d=-0.038 [-0.047, -0.030]; p=3.73e-08*","0.157 ± 0.167; d=0.550 [0.400, 0.700]; p=1.19e-07*"
+DQN-only,"248.212 ± 94.724; d=-169.414 [-205.338, -133.488]; p=3.73e-08*","30.900 ± 11.389; d=-22.948 [-27.436, -18.509]; p=3.73e-08*","0.371 ± 0.024; d=-0.027 [-0.036, -0.020]; p=6.92e-06*","5.667 ± 2.150; d=-4.900 [-5.700, -4.200]; p=3.73e-08*"
 
-"Footnote: p_corrected = Wilcoxon rank-sum p × 20 (Bonferroni correction, family size = 5 baselines × 4 metrics = 20 tests), alpha=0.05. * indicates p_corr < 0.05. Baselines: PSO, ACO, HS-HHO, ES-only, DQN-only."
+"Footnote: d = DQN-ES - comparator, Hodges-Lehmann median of the paired per-replicate differences with a 95% percentile bootstrap CI (10000 resamples of replicates); p = exact Wilcoxon signed-rank, Holm-adjusted over the declared family (5 comparators x 4 metrics = 20 tests); * p_holm <= 0.05. Replicates paired by seed (run_id)."

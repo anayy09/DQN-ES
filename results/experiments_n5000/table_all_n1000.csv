@@ -1,0 +1,9 @@
+algorithm,avg_latency_ms_mean,avg_latency_ms_std,avg_energy_mj_mean,avg_energy_mj_std,avg_privacy_risk_mean,avg_privacy_risk_std,sla_violation_pct_mean,sla_violation_pct_std,n
+DQN-ES,0,0,0,0,0,0,0,0,0
+ES-only,0,0,0,0,0,0,0,0,0
+q-mixed[q=0],0,0,0,0,0,0,0,0,0
+q-mixed[q=0.1],0,0,0,0,0,0,0,0,0
+q-mixed[q=0.25],0,0,0,0,0,0,0,0,0
+q-mixed[q=0.5],0,0,0,0,0,0,0,0,0
+q-mixed[q=0.75],0,0,0,0,0,0,0,0,0
+q-mixed[q=1],0,0,0,0,0,0,0,0,0

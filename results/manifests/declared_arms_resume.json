@@ -1,0 +1,211 @@
+{
+ "declared_utc": "2026-09-30T14:39:59Z",
+ "code": {
+  "git_commit": "4e8ab8346ffeaa1aca21e47976fc88f1a0f2a2b6",
+  "git_tag": "round2-freeze-1",
+  "git_dirty": true,
+  "git_dirty_paths": [
+   ".gitignore",
+   "results/mc_full_results.json",
+   "results/mc_full_summary.json",
+   "results/table3_n1000.csv",
+   "results/table3_n1000_with_pvals.csv",
+   "results/table3_stat_tests.csv",
+   "results/table5_weight_ablation.csv",
+   "results/table6_highci_weights.csv",
+   "results/weight_ablation_highci_raw.json",
+   "results/weight_ablation_raw.json"
+  ]
+ },
+ "config_sha256": "d3fd1b8eeb2a28fafa5ceba79da7c02a5d55ac24fdc78b973ca76fcbf46cea95",
+ "steps": [
+  {
+   "name": "mitbih",
+   "skip": false,
+   "driver": "mitbih_trace_eval",
+   "arms": [
+    "DQN-ES",
+    "PSO+DQN",
+    "ES-only",
+    "DQN-only",
+    "PSO",
+    "ACO",
+    "HS-HHO",
+    "Local-Only",
+    "Cloud-Only",
+    "DQN-ES[K=1]",
+    "DQN-ES[K=2]",
+    "DQN-ES[K=3]",
+    "DQN-ES[K=4]",
+    "DQN-ES[K=5]",
+    "Random-K[K=3]",
+    "q-mixed[q=0]",
+    "q-mixed[q=0.1]",
+    "q-mixed[q=0.25]",
+    "q-mixed[q=0.5]",
+    "q-mixed[q=0.75]",
+    "q-mixed[q=1]",
+    "Static-Tier",
+    "ES-only[lP=0.5]",
+    "ES-only[lP=1]",
+    "ES-only[lP=1.5]",
+    "ES-only[lP=2]",
+    "ES-only[lP=3]",
+    "ES-only[lP=5]",
+    "ES-only[lP=10]"
+   ],
+   "n_runs": 30,
+   "max_tasks": null,
+   "summary": "mitbih_trace_raw.json",
+   "data": true
+  },
+  {
+   "name": "privacy_guard",
+   "skip": false,
+   "driver": "privacy_guard"
+  },
+  {
+   "name": "overhead",
+   "skip": false,
+   "driver": "scheduling_overhead",
+   "arms": [
+    "DQN-ES",
+    "ES-only",
+    "Random-K[K=3]",
+    "q-mixed[q=0.5]",
+    "Static-Tier"
+   ],
+   "fog_counts": [
+    3,
+    8,
+    16,
+    32
+   ],
+   "scales": [
+    1000
+   ],
+   "n_runs": 5,
+   "workers": 1
+  },
+  {
+   "name": "decomposition",
+   "skip": false,
+   "driver": "latency_decomposition",
+   "scales": [
+    1000
+   ],
+   "n_runs": 30
+  },
+  {
+   "name": "routing",
+   "skip": false,
+   "driver": "dqn_routing_analysis",
+   "scales": [
+    1000
+   ],
+   "n_runs": 30
+  },
+  {
+   "name": "model_checks",
+   "skip": false,
+   "driver": "run_model_checks"
+  },
+  {
+   "name": "figures",
+   "skip": false,
+   "driver": "figures_q1",
+   "figures_dir": "results\\figures_freeze1"
+  }
+ ],
+ "statistics": {
+  "families": {
+   "main": {
+    "reference": "DQN-ES",
+    "comparators": [
+     "PSO",
+     "ACO",
+     "HS-HHO",
+     "ES-only",
+     "DQN-only"
+    ],
+    "metrics": [
+     "avg_latency_ms",
+     "avg_energy_mj",
+     "avg_privacy_risk",
+     "sla_violation_pct"
+    ]
+   },
+   "decomposition": {
+    "reference": "DQN-ES",
+    "comparators": [
+     "Random-K[K=3]",
+     "Static-Tier"
+    ],
+    "metrics": [
+     "avg_latency_ms",
+     "avg_energy_mj",
+     "avg_privacy_risk",
+     "sla_violation_pct"
+    ]
+   },
+   "weight_ablation": {
+    "reference": "nonlinear",
+    "comparators": [
+     "flat",
+     "step",
+     "linear"
+    ],
+    "metrics": [
+     "avg_latency_ms",
+     "avg_energy_mj",
+     "avg_privacy_risk",
+     "sla_violation_pct"
+    ]
+   },
+   "privacy_inference": {
+    "reference": "DQN-ES",
+    "comparators": [
+     "ES-only",
+     "Random-K[K=3]",
+     "Static-Tier"
+    ],
+    "metrics": [
+     "adversary_auc"
+    ]
+   }
+  },
+  "matched_latency": {
+   "reference": "DQN-ES",
+   "x_metric": "avg_latency_ms",
+   "y_metrics": [
+    "avg_privacy_risk",
+    "avg_privacy_risk_ss"
+   ],
+   "frontiers": {
+    "q_mixed": [
+     "q-mixed[q=0]",
+     "q-mixed[q=0.1]",
+     "q-mixed[q=0.25]",
+     "q-mixed[q=0.5]",
+     "q-mixed[q=0.75]",
+     "q-mixed[q=1]"
+    ],
+    "lambda_p": [
+     "ES-only[lP=0.5]",
+     "ES-only[lP=1]",
+     "ES-only[lP=1.5]",
+     "ES-only[lP=2]",
+     "ES-only[lP=3]",
+     "ES-only[lP=5]",
+     "ES-only[lP=10]"
+    ]
+   },
+   "scale": 1000
+  },
+  "tost_enabled": false,
+  "tost_margins": {
+   "avg_privacy_risk": 0.01,
+   "avg_latency_ms": 2.0
+  }
+ }
+}
