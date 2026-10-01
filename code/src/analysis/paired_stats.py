@@ -1,5 +1,5 @@
 """
-Paired replicate statistics (plan E10).
+Paired replicate statistics.
 
 Unit of analysis = replicate.  Replicate r of every algorithm uses the same
 seeds (tasks, topology, environment; src.config.replicate_seeds), so the

@@ -36,7 +36,7 @@ class ESOnlyScheduler(BaseScheduler):
         super().__init__(topology, offload_history)
         if privacy_weight_scale <= 0:
             raise ValueError('privacy_weight_scale must be > 0')
-        # lambda_P > 1 gives the reweighted-greedy baseline (plan E3)
+        # lambda_P > 1 gives the reweighted-greedy baseline
         self.privacy_weight_scale = float(privacy_weight_scale)
         self._idx_to_node: List[int] = self._candidate_nodes
         self._n_nodes = len(self._idx_to_node)

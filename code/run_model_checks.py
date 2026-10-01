@@ -87,7 +87,7 @@ def scenario():
 def check_components() -> list:
     topo, task = scenario()
     w, e = WEARABLE_ESP32, EDGE_GATEWAY_RPI4
-    # Datasheet-based wearable powers (G1-3), rebuilt here from the config
+    # Datasheet-based wearable powers, rebuilt here from the config
     # currents: radiated power for the rate, supply draw for the energy.
     p_rad = 10 ** (WEARABLE_TX_RADIATED_DBM / 10) / 1000.0
     v = WEARABLE_SUPPLY_V

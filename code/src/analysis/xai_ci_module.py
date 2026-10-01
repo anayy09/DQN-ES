@@ -451,7 +451,7 @@ def _fig_ci_distribution(ci_values: np.ndarray, figures_dir: Path):
 
 def run_xai_analysis(data_dir: str, results_dir: str, figures_dir: str) -> Dict:
     """
-    Train a SHAP-explainable CI predictor on the Mendeley IoMT dataset.
+    Train a SHAP-explainable CI predictor on the Kaggle IoMT dataset.
 
     Parameters
     ----------
@@ -472,7 +472,7 @@ def run_xai_analysis(data_dir: str, results_dir: str, figures_dir: str) -> Dict:
     figures_path.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
-    # 1. Load Mendeley XLSX directly
+    # 1. Load the Kaggle IoMT XLSX directly
     # ------------------------------------------------------------------
     xlsx_candidates = [
         data_path / 'Mendeley-IoMT' / 'patients_data_with_alerts.xlsx',

@@ -1,5 +1,5 @@
 """
-Host description for timing reports and run manifests (plan E4, E13).
+Host description for timing reports and run manifests.
 
 Avoids the `platform` module: on Windows with Python 3.12+ platform.system()
 and platform.processor() can block for ~2 min on a WMI query.

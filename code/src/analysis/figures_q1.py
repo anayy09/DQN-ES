@@ -505,7 +505,7 @@ def fig_weight_ablation(
     highci_path: Path | None = None,
 ):
     """
-    Two-panel weight-scheme ablation (Fix B).
+    Two-panel weight-scheme ablation.
 
     Top row: mixed-CI workload (20 % high, 60 % medium, 20 % low).
     Bottom row: all-high-CI ICU scenario (Phi in [0.8, 1.0]).
@@ -580,7 +580,7 @@ def fig_weight_ablation(
 # ===========================================================================
 def fig_privacy_guard_roc(metrics_path: Path, figures_dir: Path):
     """
-    Single-curve ROC loaded directly from privacy_guard_metrics.json (Fix D).
+    Single-curve ROC loaded directly from privacy_guard_metrics.json.
 
     Uses the roc_fpr / roc_tpr arrays saved by privacy_guard.py and the
     AUC value computed via sklearn.metrics.roc_auc_score (or trapezoidal
@@ -594,7 +594,7 @@ def fig_privacy_guard_roc(metrics_path: Path, figures_dir: Path):
     with open(metrics_path, 'r', encoding='utf-8') as fh:
         m = json.load(fh)
 
-    # Fix D: load the actual ROC curve from the JSON instead of recomputing
+    # Load the actual ROC curve from the JSON instead of recomputing
     fpr_arr = np.array(m.get('roc_fpr', []), dtype=float)
     tpr_arr = np.array(m.get('roc_tpr', []), dtype=float)
 
@@ -728,7 +728,7 @@ def main():
     fig_pareto_energy_latency(summary, fig, ref_scale=args.ref_scale)
     fig_pareto_latency_privacy(summary, fig, ref_scale=args.ref_scale)
     fig_epsilon_convergence(res / 'epsilon_trajectory.json', fig)
-    # Fix B: two-panel weight ablation (mixed-CI + all-high-CI)
+    # Two-panel weight ablation (mixed-CI + all-high-CI)
     fig_weight_ablation(
         res / 'weight_ablation_raw.json', fig,
         highci_path=res / 'weight_ablation_highci_raw.json',

@@ -1,5 +1,5 @@
 """
-Run manifests and the declared-arm registry (experiment-ledger discipline).
+Run manifests and the declared-arm registry.
 
 Every driver invocation (one pipeline step, or a standalone CLI run) writes
 <results>/manifests/<step>__<run_id>.json and appends one line to

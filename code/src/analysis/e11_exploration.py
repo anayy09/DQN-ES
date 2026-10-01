@@ -1,6 +1,6 @@
 """
 e11_exploration.py — exploration and off-policy diagnostics for the DQN
-schedulers, from the per-task raw logs (plan E11).
+schedulers, from the per-task raw logs.
 
 Per scheduler with DQN diagnostics (rows where exec_q_rank is logged):
   mismatch          fraction of decisions where the executed destination x*

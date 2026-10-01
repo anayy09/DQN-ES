@@ -1,5 +1,5 @@
 """
-scheduling_overhead.py — decision cost vs fog-node count (plan E4, E13).
+scheduling_overhead.py — decision cost vs fog-node count.
 
 For each arm in ROBUSTNESS_ARMS and each M in SCALING_FOG_COUNTS, runs
 SCALING_TIMING_RUNS replicates at N tasks and reports the per-decision
@@ -16,7 +16,7 @@ as median / p95 / p99 in ms over all decisions, plus the analytic parameter
 count, FLOPs and memory of the DQN at that M (machine_info.dqn_cost) and the
 host CPU.  Timing runs are serial by default (workers=1) so that concurrent
 workers do not inflate the timings.  There is no embedded-hardware
-measurement (ledger D3): numbers are for the named laptop CPU.
+measurement: numbers are for the named laptop CPU.
 
 Outputs (results_dir):
   scheduling_overhead_summary.csv   one row per (arm, M, component)

@@ -1,7 +1,8 @@
 """
 parse_mendeley.py
 -----------------
-Parse the Mendeley IoMT dataset (patients_data_with_alerts.xlsx) and convert
+Parse the Kaggle IoMT dataset (patients_data_with_alerts.xlsx; the folder and
+module names are historical) and convert
 each patient record into a simulation task event 4-tuple:
     (D_i, C_i, T_max_i, rho_i)  +  Criticality Index Phi_i
 
@@ -316,7 +317,7 @@ def parse_mendeley(data_dir: str) -> list:
 # ---------------------------------------------------------------------------
 def load_mendeley_events(data_dir: str) -> list:
     """
-    Load (or parse and cache) Mendeley simulation events.
+    Load (or parse and cache) Kaggle IoMT simulation events.
 
     Tries to read results/mendeley_events.json first; falls back to
     parsing the raw XLSX if the JSON does not exist.

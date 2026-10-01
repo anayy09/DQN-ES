@@ -3,7 +3,7 @@ IoT-Edge-Cloud network model.
 
 Models:
   - Shannon capacity for uplink (and reciprocal downlink) rates
-  - One FIFO server per node (D16): a task occupies its node from arrival
+  - One FIFO server per node: a task occupies its node from arrival
     until its service ends; service time = C_i / f_node for the task's own
     C_i; the waiting time is the backlog ahead of it (a G/G/1 queue
     simulated event by event, with occupancy released at completion time)
@@ -47,8 +47,8 @@ class NetworkNode:
     hardware: HardwareProfile
     position_km: Tuple[float, float] = (0.0, 0.0)   # (x, y) in kilometres
     current_load: int = 0     # tasks at this node (waiting or in service) at topology.now
-    arrival_rate: float = 0.0  # unused since D16 (kept for constructor compatibility)
-    # FIFO server state (D16)
+    arrival_rate: float = 0.0  # unused since the FIFO queue model (kept for constructor compatibility)
+    # FIFO server state
     busy_until: float = 0.0   # time the server finishes its current backlog
     busy_time_s: float = 0.0  # cumulative service time (utilisation)
     completions: List[float] = field(default_factory=list)  # heap of completion times
@@ -123,7 +123,7 @@ class NetworkTopology:
         Shannon capacity R = B Â· log2(1 + SNR)  [bits/s]
 
         gain: fading power gain multiplying the received SNR (1 = mean
-        channel; E7b Rayleigh block fading draws it per task).
+        channel; Rayleigh block fading draws it per task).
 
         Path-loss channel model:
             h = h_0 Â· (d_0 / d)^Î±
@@ -199,7 +199,7 @@ class NetworkTopology:
                                   link, channel_noise_dbm)
 
     # ------------------------------------------------------------------
-    # FIFO queue per node (D16)
+    # FIFO queue per node
     # ------------------------------------------------------------------
 
     def reset_queues(self) -> None:

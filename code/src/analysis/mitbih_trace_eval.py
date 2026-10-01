@@ -1,5 +1,5 @@
 """
-mitbih_trace_eval.py — Fix 10: MIT-BIH real-trace evaluation, parallel.
+mitbih_trace_eval.py — MIT-BIH real-trace evaluation, parallel.
 
 Each (algorithm, run_id) cell is fully independent, so the n_runs * n_algs
 matrix is dispatched to a multiprocessing.Pool.  On an 8-core laptop this
@@ -258,7 +258,7 @@ def run_mitbih_trace(
                       'run_ids': [int(r['run_id']) for r in runs]}
             row[f'{k}_mean'] = float(vs.mean())
             row[f'{k}_std']  = float(vs.std())
-        # Steady-state R_P (F7): only runs long enough to pass warm-up
+        # Steady-state R_P: only runs long enough to pass warm-up
         ss_runs = [r for r in runs if 'avg_privacy_risk_ss' in r]
         ss = np.array([r['avg_privacy_risk_ss'] for r in ss_runs], dtype=float)
         if len(ss):

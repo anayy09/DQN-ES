@@ -1,5 +1,5 @@
 """
-e5_adversary.py — learned acuity-inference adversary on routing traces (plan E5).
+e5_adversary.py — learned acuity-inference adversary on routing traces.
 
 Reads per-run raw logs only (simulation/episode_log.py format).
 
@@ -8,7 +8,7 @@ destinations it offloads to, when tasks leave the device, how large they
 are, and how long each takes to complete.  It wants to know whether the
 patient is in a high-acuity period.
 
-Samples and labels (ruling D20).  One sample per task.  Binary label: the
+Samples and labels.  One sample per task.  Binary label: the
 task's true CI tier is 'high'; 3-tier label: the tier.  (The synthetic
 generator draws tiers i.i.d. per task, so window-majority labels do not
 occur; the task is the unit at which acuity varies.)
@@ -30,7 +30,7 @@ Evaluation.
   split         train on replicates E5_ADVERSARY['train_runs'], test on
                 E5_ADVERSARY['test_runs'] (replicate-disjoint); AUC on the
                 pooled test tasks and per test replicate (the unit of the
-                D17(b) 'privacy_inference' family)
+                declared 'privacy_inference' family)
   cv            5-fold cross-validation grouped by replicate
   macro3        one-vs-rest macro AUC for the 3-tier label (primary config)
   MI            plug-in mutual information I(destination; CI tier) in bits

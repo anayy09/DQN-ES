@@ -1,10 +1,10 @@
 """
-weight_ablation.py — Fix 6 + Fix B: CI weight function ablation.
+weight_ablation.py — CI weight function ablation.
 
 Compares four CI-to-weight schemes (flat, step, linear, proposed
 non-linear) for DQN-ES at the primary scale, 30 Monte Carlo trials each.
 
-Fix B: also runs all-high-CI ICU scenario (Phi in [0.8, 1.0]) to test
+Also runs the all-high-CI ICU scenario (Phi in [0.8, 1.0]) to test
 whether the non-linear scheme separates from alternatives under maximum
 criticality load.  Wilcoxon rank-sum tests (Bonferroni-corrected) between
 non-linear and each other scheme are applied in both scenarios.
@@ -13,7 +13,7 @@ Outputs (mixed-CI workload):
   results/table5_weight_ablation.csv
   results/weight_ablation_raw.json
 
-Outputs (all-high-CI workload, Fix B):
+Outputs (all-high-CI workload):
   results/table6_highci_weights.csv
   results/weight_ablation_highci_raw.json
 """
@@ -92,7 +92,7 @@ def run_ablation(
     Parameters
     ----------
     ci_distribution : str
-        'mixed' for standard workload; 'all_high' for Fix B ICU scenario.
+        'mixed' for standard workload; 'all_high' for the ICU scenario.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     label = 'HIGHCI' if ci_distribution == 'all_high' else 'MIXED'

@@ -1,6 +1,6 @@
 """
 e8_energy_profiles.py — wearable energy under alternative ESP32-S3 power
-profiles, recomputed post hoc from the per-task raw logs (plan E8).
+profiles, recomputed post hoc from the per-task raw logs.
 
 The simulator logs, per task, the wearable's energy by phase under the model
 powers (energy_tx_mj, energy_rx_mj, energy_idle_mj, energy_compute_mj).  The
@@ -14,7 +14,7 @@ Profiles (power = current x 3.3 V).  Current values are from the ESP32-S3
 Series Datasheet v2.2 (Espressif), Tables 5-7 and 5-10 (parameter provenance
 table S1).  Wake-up energy is an assumption, not a datasheet value.
 
-  model          the simulator's powers (G1-3, datasheet v2.2): TX 283 mA
+  model          the simulator's powers (datasheet v2.2): TX 283 mA
                  (Table 5-7, HT20 MCS7), RX 88 mA, wait 47.6 mA (Table 5-9)
   radio_on_wait  TX 340 mA (802.11b 1 Mbps, 21 dBm), RX 88 mA
                  (802.11n HT20), waiting with the receiver on (88 mA)

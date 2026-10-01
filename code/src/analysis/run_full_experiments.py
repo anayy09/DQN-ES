@@ -1,10 +1,10 @@
 """
-run_full_experiments.py — Q1 master Monte Carlo driver.
+run_full_experiments.py — master Monte Carlo driver.
 
-Addresses Fix 1 (N_RUNS=30 globally enforced), Fix 2 (ES-only + DQN-only
-ablations included), Fix 3 (Local-Only SLA violations now non-zero due to
-realistic cycle counts in TASK_PROFILES), Fix 5 (N=5000 scale added), and
-Fix 7 (epsilon trajectory captured for DQN-ES).
+N_RUNS=30 replicates everywhere, ES-only and DQN-only ablations included,
+realistic cycle counts in TASK_PROFILES (so Local-Only has non-zero SLA
+violations), scales up to N=5000, and the DQN-ES epsilon trajectory is
+captured.
 
 Outputs:
   results/mc_full_results.json          Per-run raw metrics

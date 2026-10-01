@@ -1,5 +1,5 @@
 """
-Randomised candidate-restriction controls (plan E2; self-review F3).
+Randomised candidate-restriction controls.
 
 RandomKScheduler   a uniformly random K-subset of the network destinations
                    each task, then argmin F over it.  No learning: this is

@@ -1,5 +1,5 @@
 """
-Per-task raw logs and episode-level extras (plan E5, E8, E11; self-review F7).
+Per-task raw logs and episode-level extras.
 
 write_raw_log()          one gzip CSV per (experiment, N, algorithm, run) with
                          every observable a passive adversary could see
@@ -68,9 +68,9 @@ def add_steady_state(metrics: dict, results: List[dict],
 
 def add_queue_metrics(metrics: dict, results: List[dict]) -> dict:
     """
-    avg_queue_ms: mean FIFO waiting time per task (D16).
+    avg_queue_ms: mean FIFO waiting time per task.
     edge_utilisation: service time on edge nodes / arrival span (achieved
-    utilisation; E7's rho target is the offered load).
+    utilisation; the workload rho target is the offered load).
     """
     if not results:
         return metrics

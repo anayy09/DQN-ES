@@ -1,6 +1,5 @@
 """
-statistical_tests.py — paired replicate statistics for the comparison tables
-(plan E10).
+statistical_tests.py — paired replicate statistics for the comparison tables.
 
 For each declared family in src.config.STAT_FAMILIES, every (comparator,
 metric) pair is tested against the family's reference on the per-run means:
@@ -219,7 +218,7 @@ def _print_family(fam: str, rows: List[dict], scale: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# D17(a): privacy excess at matched latency (E2 / E3 primary statistic)
+# Privacy excess at matched latency (primary statistic of the frontiers)
 # ---------------------------------------------------------------------------
 
 def matched_latency_excess(cell: Dict[str, dict], reference: str,
@@ -276,7 +275,7 @@ def median_bootstrap_ci(values, n_boot: int, level: float, seed: int):
 def run_matched_latency(main_summary: Path, extra_summaries: Iterable[Path],
                         out_dir: Path, scale: Optional[int] = None,
                         n_boot: int = STAT_BOOT_N) -> List[dict]:
-    """D17(a) for every frontier x y-metric declared in config.MATCHED_LATENCY."""
+    """Matched-latency excess for every frontier x y-metric declared in config.MATCHED_LATENCY."""
     import numpy as np
     from src.config import MATCHED_LATENCY as ML
     scale = ML['scale'] if scale is None else scale
@@ -322,7 +321,7 @@ def run_matched_latency(main_summary: Path, extra_summaries: Iterable[Path],
 
 def run_privacy_inference(auc_json: Path, out_dir: Path,
                           n_boot: int = STAT_BOOT_N) -> List[dict]:
-    """D17(b): family 'privacy_inference' on per-test-replicate adversary AUC."""
+    """Family 'privacy_inference' on per-test-replicate adversary AUC."""
     doc = json.loads(Path(auc_json).read_text(encoding='utf-8'))
     rows = run_family_tests(doc['cells'], 'privacy_inference', n_boot=n_boot)
     out_dir.mkdir(parents=True, exist_ok=True)

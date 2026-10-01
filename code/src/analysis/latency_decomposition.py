@@ -2,11 +2,11 @@
 latency_decomposition.py — latency component breakdown.
 
 Decomposes mean end-to-end latency at N=1000 for config.ROBUSTNESS_ARMS
-(G1-4: DQN-ES, ES-only, Random-K[K=3], q-mixed[q=0.5], Static-Tier) into
+(DQN-ES, ES-only, Random-K[K=3], q-mixed[q=0.5], Static-Tier) into
   (1) transmission latency  t_tx   = D_i / R_{i,j}
-  (2) queuing delay         t_queue (FIFO wait, D16)
+  (2) queuing delay         t_queue (FIFO wait)
   (3) compute at destination t_proc = C_i / f_j
-  (4) propagation and (5) result download (E9)
+  (4) propagation and (5) result download
 
 Outputs
 -------
@@ -42,7 +42,7 @@ from src.config import (
 )
 from src.simulation.replicate import build_synthetic_replicate, run_scheduler
 
-# Algorithms for decomposition: the robustness arms (G1-4)
+# Algorithms for decomposition: the robustness arms
 DECOMP_ALGORITHMS = list(ROBUSTNESS_ARMS)
 
 

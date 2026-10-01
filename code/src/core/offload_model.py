@@ -6,14 +6,14 @@ the normalisation bounds (BaseScheduler.estimate_feasible_bounds) and the
 realised metrics (OffloadingEnvironment.step), so every scheduler optimises
 and is scored against the same model.
 
-Every node is a FIFO server (D16, core/network.py): a task arriving at
+Every node is a FIFO server (core/network.py): a task arriving at
 node j at time a waits for the backlog max(0, busy_until_j - a), then is
 served for C_i / f_j.  The prediction below is exactly what the environment
 then reserves, so predicted and realised waiting times coincide.
 
 Local execution (destination = the task's own wearable), arrival a = now:
     L = t_queue + C_i / f_local,  E = P_active C_i / f_local
-    (P_active = datasheet draw, G1-3; kappa C_i f^2 only for a profile
+    (P_active = datasheet draw; kappa C_i f^2 only for a profile
     without a draw)
 Offload to node j, arrival a = now + t_tx + t_prop:
     L = t_tx + t_prop + t_queue + t_proc + t_dl
@@ -21,7 +21,7 @@ Offload to node j, arrival a = now + t_tx + t_prop:
         t_prop = d / v                           (one way)
         t_queue: FIFO backlog at j when the task arrives
         t_proc = C_i / f_j
-        t_dl   = t_prop + S_res / R_dl           (result return; plan E9)
+        t_dl   = t_prop + S_res / R_dl           (result return)
     E = P_tx t_tx + P_rx (S_res / R_dl) + P_idle (L - t_tx - S_res / R_dl)
 R_ul uses the wearable's *radiated* power (hardware.tx_power_w); the energy
 uses its battery draw (hardware.tx_draw_w, idle_power_w, WEARABLE_RX_POWER_W).
@@ -61,7 +61,7 @@ class OffloadOutcome:
     e_idle: float = 0.0
     e_rx: float = 0.0
     e_compute: float = 0.0     # local execution only
-    # time the task reaches its execution node (queue arrival, D16)
+    # time the task reaches its execution node (queue arrival)
     t_arrive: float = 0.0
 
 
@@ -81,7 +81,7 @@ def offload_outcome(topology, task, node_id: int,
 
     realised=False (schedulers): expected channel, i.e. fading gain 1 and
     transmission factor 1 / (1 - packet_loss).  realised=True (environment):
-    the task's sampled fading_gain and arq_factor (E7b).  With an ideal
+    the task's sampled fading_gain and arq_factor.  With an ideal
     channel (no channel state on the task) both are identical.
     """
     if realised and task.fading_gain is not None:

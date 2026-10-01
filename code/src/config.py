@@ -1,5 +1,5 @@
 """
-Central hyperparameter configuration for the Q1 DQN-ES paper.
+Central hyperparameter configuration for the DQN-ES paper.
 
 All Monte Carlo runs, ablations, and statistical analyses import from
 this single file so that the experimental protocol is reproducible and
@@ -33,7 +33,7 @@ def replicate_seeds(run_id: int, n_tasks: int = 0) -> dict:
     """
     Per-stream seeds for one replicate, all derived from replicate_seed().
 
-      task       base seed (task generator; unchanged from the round-1 rule)
+      task       base seed (task generator; unchanged from the original rule)
       scheduler  base seed (passed as seed= to every stochastic scheduler)
       topology   independent stream: device/fog placement per replicate
       env        independent stream: attack-burst draws in the environment
@@ -55,10 +55,10 @@ def replicate_seeds(run_id: int, n_tasks: int = 0) -> dict:
         'scheduler': base,
         'topology':  s(0),
         'env':       s(1),
-        'arrival':   s(2),   # MMPP-2 state/arrival draws (E7)
-        'ci_noise':  s(3),   # scheduler-visible CI perturbation (E14)
-        'pretrain':  s(4),   # warm-start pre-training stream (E12)
-        'fading':    s(5),   # per-task channel state: fading gain, ARQ (E7b)
+        'arrival':   s(2),   # MMPP-2 state/arrival draws
+        'ci_noise':  s(3),   # scheduler-visible CI perturbation
+        'pretrain':  s(4),   # warm-start pre-training stream
+        'fading':    s(5),   # per-task channel state: fading gain, ARQ
     }
 
 
@@ -70,7 +70,7 @@ def seed_global_rngs(seed: int) -> None:
     _np.random.seed(seed % (2 ** 32))
 
 
-# Legacy alias (round-1 name); prefer replicate_seed().
+# Legacy alias (earlier name); prefer replicate_seed().
 PER_RUN_SEED_FN = replicate_seed
 
 
@@ -116,20 +116,20 @@ DQN_TOP_K:           int   = 3
 
 
 # ---------------------------------------------------------------------------
-# Decomposition experiments (plan E1-E3; experiment registry below)
+# Decomposition experiments (experiment registry below)
 # ---------------------------------------------------------------------------
-K_SWEEP:             list[int]   = [1, 2, 3, 4, 5]                   # E1 DQN-ES K-sweep
-RANDOM_K:            int         = DQN_TOP_K                          # E2 Random-K subset size
-Q_MIX_SWEEP:         list[float] = [0.0, 0.1, 0.25, 0.5, 0.75, 1.0]   # E2 q-mixed
-LAMBDA_P_SWEEP:      list[float] = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0]  # E3 ES-only privacy scale
+K_SWEEP:             list[int]   = [1, 2, 3, 4, 5]                   # DQN-ES K-sweep
+RANDOM_K:            int         = DQN_TOP_K                          # Random-K subset size
+Q_MIX_SWEEP:         list[float] = [0.0, 0.1, 0.25, 0.5, 0.75, 1.0]   # q-mixed
+LAMBDA_P_SWEEP:      list[float] = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0]  # ES-only privacy scale
 
-# E4 scalability: fog-node counts M (action set = M + 2 network
+# Scalability: fog-node counts M (action set = M + 2 network
 # destinations; DQN state dim = 2 + 4 (M + 2)).  Decision-time split is
 # measured serially (no concurrent workers) on SCALING_TIMING_RUNS replicates.
 SCALING_FOG_COUNTS:  list[int]   = [3, 8, 16, 32]
 SCALING_TIMING_RUNS: int         = 5
 ROBUSTNESS_ARMS:     list[str]   = ['DQN-ES', 'ES-only', 'Random-K[K=3]',
-                                    'q-mixed[q=0.5]', 'Static-Tier']   # E4/E7/E12/E14 arms
+                                    'q-mixed[q=0.5]', 'Static-Tier']   # scaling/workload/warm-start/CI-noise arms
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ GAMMA_P:             float = 2.0
 # step-weight ablation condition.
 STEP_CI_THRESHOLD:   float = 0.5
 
-# CI tier labels for logs and the acuity adversary (plan E5).  Matches the
+# CI tier labels for logs and the acuity adversary.  Matches the
 # synthetic generator's tiers: low [0, 0.3), medium [0.3, 0.7), high [0.7, 1].
 CI_TIER_BOUNDS:      tuple = (0.3, 0.7)
 
@@ -156,7 +156,7 @@ def ci_tier(ci: float) -> str:
 
 
 # ---------------------------------------------------------------------------
-# ECG payload  (D15; single source for core/task.py TASK_PROFILES, the
+# ECG payload  (single source for core/task.py TASK_PROFILES, the
 # synthetic generator and the MIT-BIH trace)
 # ---------------------------------------------------------------------------
 # Main configuration: a heavy 5 MB (SI) payload per ECG analysis task.
@@ -167,7 +167,7 @@ ECG_PAYLOAD_SENSITIVITY_BITS: int = 80_000         # 10 KB
 
 
 # ---------------------------------------------------------------------------
-# Result return / downlink  (plan E9, D7; core/offload_model.py)
+# Result return / downlink  (core/offload_model.py)
 # ---------------------------------------------------------------------------
 # Every offloaded task returns a result (class label, confidence, timestamp)
 # to the wearable.  Latency adds the return propagation delay plus
@@ -184,7 +184,7 @@ DOWNLINK_TX_POWER_W:           float      = 0.100
 
 
 # ---------------------------------------------------------------------------
-# Wearable power model (G1-3; core/hardware_profiles.py WEARABLE_ESP32)
+# Wearable power model (core/hardware_profiles.py WEARABLE_ESP32)
 # ---------------------------------------------------------------------------
 # All values from the Espressif ESP32-S3 Series Datasheet, Version 2.2
 # (2026-03-05).  Radiated power (the rate equation) and battery draw (the
@@ -227,7 +227,7 @@ WEARABLE_CPU_FREQ_HZ:          float      = 240e6
 
 
 # ---------------------------------------------------------------------------
-# Workload realism (plan E7; data_ingestion/event_generator.py)
+# Workload realism (data_ingestion/event_generator.py)
 # ---------------------------------------------------------------------------
 # Default arrivals: Poisson with rate N / 300 s.  MMPP-2 option: two states
 # with rate multipliers MMPP2_RATE_MULTIPLIERS (renormalised so the long-run
@@ -242,7 +242,7 @@ MMPP2_SWITCH_PROBS:     tuple = (0.02, 0.10)
 # the scheduler and is reported per run (edge_utilisation).
 LOAD_RHO_TARGETS:       list  = [0.3, 0.6, 0.85]
 
-# Channel realism (plan E7, Tier 3; off by default).  Per task, the
+# Channel realism (off by default).  Per task, the
 # wearable's link sees a Rayleigh block-fading power gain g ~ Exp(1) (uplink
 # and, reciprocally, downlink) and an ARQ with independent packet losses:
 # the payload is split into ARQ_PACKET_BITS packets and each is resent until
@@ -252,11 +252,11 @@ LOAD_RHO_TARGETS:       list  = [0.3, 0.6, 0.85]
 ARQ_PACKET_BITS:        int   = 12_000                 # 1500-byte packets
 PACKET_LOSS_SWEEP:      list  = [0.01, 0.05]
 
-# Warm start (plan E12): pre-train DQN schedulers on N_pre synthetic tasks
+# Warm start: pre-train DQN schedulers on N_pre synthetic tasks
 # from the replicate's disjoint 'pretrain' seed stream before evaluation.
 WARM_START_SWEEP:       list  = [500, 2000]
 
-# CI noise (plan E14): perturbs only the Phi the scheduler sees; logs and
+# CI noise: perturbs only the Phi the scheduler sees; logs and
 # labels keep the true Phi.  Gaussian sigma (clipped to [0, 1]) and a
 # tier-misclassification probability (Phi redrawn uniformly inside one of
 # the other two CI_TIER_BOUNDS tiers).  Misclassification is applied first
@@ -291,14 +291,14 @@ PRIVACY_ENTROPY_THRESHOLD: float = 0.85
 # MIT-BIH trace-driven evaluation
 # ---------------------------------------------------------------------------
 MITBIH_N_RUNS:       int   = 30
-MITBIH_PAYLOAD_BITS: int   = None  # set below to ECG_PAYLOAD_BITS (single source, D15)
+MITBIH_PAYLOAD_BITS: int   = None  # set below to ECG_PAYLOAD_BITS (single source)
 MITBIH_DEADLINE_S:   float = 0.500                   # 500 ms ECG SLA (matches paper's stated SLA)
 MITBIH_RHO:          float = 0.9
 MITBIH_PAYLOAD_BITS = ECG_PAYLOAD_BITS
 
 
 # ---------------------------------------------------------------------------
-# Statistical testing  (plan E10; analysis/statistical_tests.py, paired_stats.py)
+# Statistical testing  (analysis/statistical_tests.py, paired_stats.py)
 # ---------------------------------------------------------------------------
 # Unit = replicate (per-run mean); replicates are paired by run_id because
 # every algorithm sees the same seeds.  Test: Wilcoxon signed-rank on the
@@ -327,27 +327,27 @@ STAT_FAMILIES: dict = {
         'comparators': STAT_BASELINES,
         'metrics':     STAT_METRICS,
     },
-    'decomposition': {                          # E2: 2 x 4 = 8 tests
+    'decomposition': {                          # 2 x 4 = 8 tests
         'reference':   'DQN-ES',
         'comparators': ['Random-K[K=3]', 'Static-Tier'],
         'metrics':     STAT_METRICS,
     },
-    'weight_ablation': {                        # E15: 3 x 4 = 12 tests
+    'weight_ablation': {                        # 3 x 4 = 12 tests
         'reference':   'nonlinear',
         'comparators': ['flat', 'step', 'linear'],
         'metrics':     STAT_METRICS,
     },
-    'privacy_inference': {                      # E5 / D17(b): 3 x 1 = 3 tests
+    'privacy_inference': {                      # acuity adversary: 3 x 1 = 3 tests
         'reference':   'DQN-ES',
         'comparators': ['ES-only', 'Random-K[K=3]', 'Static-Tier'],
         'metrics':     ['adversary_auc'],       # per test replicate (analysis/e5_adversary.py)
     },
 }
 
-# E5 adversary (analysis/e5_adversary.py), task-level (ruling D20: the
+# Acuity-inference adversary (analysis/e5_adversary.py), task-level (the
 # generator draws CI tiers i.i.d. per task, so a window-majority label never
 # occurs).  Primary configuration for the 'privacy_inference' family,
-# declared before the freeze: one sample per task, label = the task's true
+# declared before the final runs: one sample per task, label = the task's true
 # CI tier is 'high'; features = the task's destination, the device's
 # histogram over its preceding `context` destinations, inter-arrival since
 # the device's previous task, response time and payload size;
@@ -363,7 +363,8 @@ E5_ADVERSARY: dict = {
     'seed':               GLOBAL_SEED,
 }
 
-# D17(a): E2/E3 primary statistic, "privacy excess at matched latency".
+# Primary statistic of the random-subset and reweighted-greedy frontiers,
+# "privacy excess at matched latency".
 # Per replicate r: sort the frontier's points (latency_r, R_P_r) by latency,
 # interpolate R_P linearly at DQN-ES's latency_r, and take
 # excess_r = R_P(DQN-ES)_r - R_P(frontier at latency_r).  A replicate whose
@@ -425,16 +426,16 @@ def get_full_algorithm_registry():
 
 def get_experiment_registry():
     """
-    Decomposition arms (plan E1-E3), kept out of the main comparison table.
+    Decomposition arms, kept out of the main comparison table.
     Values are functools.partial(SchedulerClass, **params); make_scheduler()
     and the drivers accept them wherever a class is accepted.
 
-      DQN-ES[K=k]       E1 K-sweep (K=3 is DQN-ES, K=1 is DQN-only's policy,
+      DQN-ES[K=k]       K-sweep (K=3 is DQN-ES, K=1 is DQN-only's policy,
                         K=5 enumerates every destination = ES-only decisions)
-      Random-K[K=k]     E2 random K-subset + argmin F, no learning
-      q-mixed[q=..]     E2 random K-subset w.p. q, else full enumeration
-      Static-Tier       E2 ECG -> edge, all other task types local
-      ES-only[lP=..]    E3 reweighted greedy (privacy weight x lambda_P)
+      Random-K[K=k]     random K-subset + argmin F, no learning
+      q-mixed[q=..]     random K-subset w.p. q, else full enumeration
+      Static-Tier       ECG -> edge, all other task types local
+      ES-only[lP=..]    reweighted greedy (privacy weight x lambda_P)
     """
     from functools import partial
     from src.algorithms.dqn_es import DQNESScheduler

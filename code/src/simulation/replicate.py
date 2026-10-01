@@ -49,7 +49,7 @@ CHANNEL_KEYS = ('fading', 'packet_loss')
 def draw_channel(tasks: List[HealthcareTask], fading: Optional[str],
                  packet_loss: Optional[float], seed: int) -> None:
     """
-    E7b: per-task channel state from the replicate's 'fading' stream (the
+    Per-task channel state from the replicate's 'fading' stream (the
     same for every arm).  fading='rayleigh' draws g ~ Exp(1); packet_loss p
     draws the ARQ transmission count n_pkt + NegBin(n_pkt, 1 - p) for the
     task's payload split into ARQ_PACKET_BITS packets.
@@ -74,7 +74,7 @@ def draw_channel(tasks: List[HealthcareTask], fading: Optional[str],
 def perturb_ci(tasks: List[HealthcareTask], sigma: Optional[float],
                misclass_prob: Optional[float], seed: int) -> None:
     """
-    E14: replace each task's scheduler-visible ci_score by a perturbed value
+    Replace each task's scheduler-visible ci_score by a perturbed value
     and keep the true value in ci_true.  With probability misclass_prob the
     value is redrawn uniformly inside one of the other two CI tiers; then
     Gaussian noise N(0, sigma^2) is added and the result clipped to [0, 1].
@@ -106,8 +106,8 @@ def apply_task_overrides(tasks: List[HealthcareTask],
                          seeds: Optional[dict] = None) -> List[HealthcareTask]:
     """
     Sensitivity knobs applied to a built task list (in place):
-      ecg_payload_bits   D_i of every ECG task (D15: 10 KB sensitivity)
-      result_size_bits   result returned to the wearable (E9: 1-64 KB)
+      ecg_payload_bits   D_i of every ECG task (10 KB sensitivity)
+      result_size_bits   result returned to the wearable (1-64 KB)
     """
     if not overrides:
         return tasks
@@ -199,7 +199,7 @@ def build_synthetic_replicate(
 def warm_start(sched, topology: NetworkTopology, seeds: dict,
                n_pre: int) -> bool:
     """
-    Pre-train a DQN scheduler (plan E12) on n_pre synthetic tasks drawn from
+    Pre-train a DQN scheduler on n_pre synthetic tasks drawn from
     the replicate's 'pretrain' seed stream (disjoint from every evaluation
     stream), on the same topology.  Network weights, replay buffer and the
     decayed epsilon carry over; queues, routing history, the pending

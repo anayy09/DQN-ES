@@ -1,5 +1,5 @@
 """
-post_run.py — post-run analyses on the frozen raw logs and summaries (P2).
+post_run.py — post-run analyses on the final raw logs and summaries.
 
 Analysis only: nothing here runs the simulator.  Every command reuses the
 functions of the declared analyses unchanged (e5_adversary, e8_energy_profiles,
@@ -10,7 +10,7 @@ all ~30 arms are analysed.
 
 Commands (from code/):
   python -m src.analysis.post_run e5  --raw-dirs DIR... --out DIR [--workers W]
-      E5 adversary for every scheduler found (same samples, features,
+      Acuity adversary for every scheduler found (same samples, features,
       classifiers, split and outputs as e5_adversary.run), plus
         adversary_auc_ci.csv            mean per-test-replicate AUC with a
                                         replicate-bootstrap CI, every
@@ -18,7 +18,7 @@ Commands (from code/):
         adversary_auc_by_replicate_all.json
         trace_identity.json             schedulers whose destination traces
                                         are identical on every replicate
-      then statistical_tests.run_privacy_inference (D17b) on the primary cell.
+      then statistical_tests.run_privacy_inference on the primary cell.
   python -m src.analysis.post_run corr --e5-dir DIR --summaries F... --scale N --out DIR
       Exploratory: Spearman rank correlation across schedulers between R_P
       (all-task and steady-state) and adversary AUC / I(dest; tier), with a
@@ -33,15 +33,16 @@ Commands (from code/):
       Exploratory: per-arm means (bootstrap CI) and paired HL differences for
       each pair in every condition of the d17a list.
   python -m src.analysis.post_run e5cv30 --raw-dirs DIR... --out DIR
-      Secondary (P2b): E5 primary config, 5-fold CV grouped by replicate over
-      all replicates (n = 30 test AUCs per scheduler) + D17b on those.
+      Secondary: adversary primary config, 5-fold CV grouped by replicate over
+      all replicates (n = 30 test AUCs per scheduler) + the privacy-inference
+      tests on those.
   python -m src.analysis.post_run aucmatched --e5-dir DIR --summaries F... --scale N --out DIR
-      Secondary (P2b): D17(a) form with adversary AUC (declared split, CV30);
+      Secondary: matched-latency form with adversary AUC (declared split, CV30);
       --scale 0 reads flat {arm: cell} summaries (MIT-BIH).
   python -m src.analysis.post_run lambdamech --raw-dirs DIR... --out DIR
-      Secondary (P2b): destination distribution by CI tier, lambda_P arms.
+      Secondary: destination distribution by CI tier, lambda_P arms.
   python -m src.analysis.post_run d17a --out DIR
-      Exploratory: D17(a) matched-latency excess in every condition where
+      Exploratory: matched-latency privacy excess in every condition where
       DQN-ES and a frontier exist, with the reason for each exclusion.
 """
 
@@ -94,7 +95,7 @@ def index_logs(raw_dirs: List[Path]) -> Dict[str, Dict[int, Path]]:
     return idx
 
 
-# Columns the E5 features, labels and MI need (keeps MIT-BIH-size logs in memory)
+# Columns the adversary features, labels and MI need (keeps MIT-BIH-size logs in memory)
 E5_COLUMNS = ('algorithm', 'device_id', 'timestamp', 'assigned_node', 'ci_tier',
               'latency_ms', 'payload_bits')
 
@@ -132,7 +133,7 @@ def _manifest(results_dir: Path, step: str, params: dict):
 
 
 # --------------------------------------------------------------------------
-# E5
+# Acuity-inference adversary
 # --------------------------------------------------------------------------
 
 def _e5_worker(job):
@@ -370,7 +371,7 @@ def cmd_corr(e5_dir: Path, summaries: List[Path], scale: int, out_dir: Path,
 
 
 # --------------------------------------------------------------------------
-# E8 (same computation as e8_energy_profiles.run, one scheduler at a time)
+# Energy profiles (same computation as e8_energy_profiles.run, one scheduler at a time)
 # --------------------------------------------------------------------------
 
 def cmd_e8(raw_dirs: List[Path], out_dir: Path,
@@ -409,7 +410,7 @@ def cmd_e8(raw_dirs: List[Path], out_dir: Path,
 
 
 # --------------------------------------------------------------------------
-# D17(a) robustness (exploratory)
+# Matched-latency privacy excess, robustness (exploratory)
 # --------------------------------------------------------------------------
 
 def _conditions() -> List[dict]:
@@ -498,7 +499,7 @@ def cmd_d17a(out_dir: Path) -> None:
         cell = _load_condition(cond)
         ref = ML['reference']
         # q-mixed: the declared 6 points when present; otherwise the identities
-        # q=0 == ES-only and q=1 == Random-K[K=3] (batch A) complete what exists
+        # q=0 == ES-only and q=1 == Random-K[K=3] complete what exists
         alias = {}
         if 'q-mixed[q=0]' not in cell and 'ES-only' in cell:
             alias['q-mixed[q=0]'] = 'ES-only'
@@ -673,7 +674,7 @@ def cmd_paired(pairs: List[str], out_dir: Path, tag: str) -> None:
 
 
 # --------------------------------------------------------------------------
-# E5 secondary analyses (P2b; not pre-declared)
+# Adversary secondary analyses (not pre-declared)
 # --------------------------------------------------------------------------
 
 def _e5_cv30_worker(job):
@@ -706,10 +707,10 @@ def _e5_cv30_worker(job):
 def cmd_e5_cv30(raw_dirs: List[Path], out_dir: Path, workers: int,
                 algorithms: Optional[List[str]] = None) -> None:
     """
-    Secondary (P2b, not declared): E5 primary configuration with 5-fold
+    Secondary (not declared): adversary primary configuration with 5-fold
     cross-validation grouped by replicate over all replicates, so every
     replicate contributes one test AUC (n = 30 per scheduler). Then the
-    D17b family on those AUCs as a sensitivity check.
+    privacy-inference family on those AUCs as a sensitivity check.
     """
     from concurrent.futures import ProcessPoolExecutor
     import multiprocessing as mp
@@ -762,7 +763,7 @@ def cmd_e5_cv30(raw_dirs: List[Path], out_dir: Path, workers: int,
 
 def cmd_auc_matched(e5_dir: Path, summaries: List[Path], scale: int, out_dir: Path) -> None:
     """
-    Secondary (P2b): the D17(a) form with adversary AUC as y. Per replicate,
+    Secondary: the matched-latency form with adversary AUC as y. Per replicate,
     interpolate the q-mixed and lambda_P curves' AUC at DQN-ES's latency;
     median over replicates with a replicate-bootstrap CI. Positive = DQN-ES
     AUC above the frontier. Run on the declared test split (n <= 10) and on
@@ -823,7 +824,7 @@ LAMBDA_MECH_ARMS = ['ES-only[lP=0.5]', 'ES-only[lP=1]', 'ES-only[lP=3]', 'ES-onl
 
 def cmd_lambda_mech(raw_dirs: List[Path], out_dir: Path) -> None:
     """
-    Secondary (P2b): destination distribution by true CI tier and the pooled
+    Secondary: destination distribution by true CI tier and the pooled
     I(dest; tier) for the lambda_P arms, over all replicates.
     """
     from src.analysis.e5_adversary import TIERS, _dest, mutual_information

@@ -6,7 +6,7 @@ wearable device.  Task profiles are derived from published literature on
 clinical-grade biosignal processing workloads.
 
 TASK_PROFILES below is the single source of task parameters for the
-synthetic generator (data_ingestion/event_generator.py), the Mendeley/Kaggle
+synthetic generator (data_ingestion/event_generator.py), the Kaggle IoMT
 parser and the MIT-BIH trace drivers.
 
   - ECG analysis: payload src.config.ECG_PAYLOAD_BITS (5 MB main, a heavy-
@@ -37,8 +37,8 @@ class HealthcareTask:
     source: str = 'synthetic'         # 'synthetic' | 'physionet' | 'mimic'
     task_type: str = 'unknown'        # key into TASK_PROFILES (e.g. 'ecg_analysis')
     result_size_bits: Optional[int] = None  # result returned to the wearable; None -> config.RESULT_SIZE_BITS
-    ci_true: Optional[float] = None   # true Phi when ci_score is a perturbed, scheduler-visible value (E14)
-    # E7b channel state (None = ideal channel): realised fading power gain,
+    ci_true: Optional[float] = None   # true Phi when ci_score is a perturbed, scheduler-visible value
+    # Channel state (None = ideal channel): realised fading power gain,
     # realised ARQ transmission factor, and the loss probability the
     # schedulers plan with
     fading_gain: Optional[float] = None

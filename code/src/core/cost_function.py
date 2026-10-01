@@ -70,7 +70,7 @@ def compute_normalized_weights(ci: float) -> Tuple[float, float, float]:
 
     Dispatches to the currently active weight mode (default: 'nonlinear',
     the paper's proposed CI-adaptive non-linear scheme).  Mode can be
-    overridden globally via `set_weight_mode()` for Fix 6 (ablation).
+    overridden globally via `set_weight_mode()` for the weight ablation.
     """
     ci = float(max(0.0, min(1.0, ci)))
     mode = WEIGHT_MODE
@@ -97,7 +97,7 @@ def compute_normalized_weights(ci: float) -> Tuple[float, float, float]:
 
 
 # ---------------------------------------------------------------------------
-# Weight-mode switch  (Fix 6: ablation of CI-adaptive weight design)
+# Weight-mode switch  (ablation of CI-adaptive weight design)
 # ---------------------------------------------------------------------------
 WEIGHT_MODE: str = 'nonlinear'   # 'flat' | 'step' | 'linear' | 'nonlinear'
 
@@ -218,8 +218,8 @@ def compute_local_energy_draw(
     Battery energy of local execution from a measured supply draw:
       E_local = P_active * C_i / f
 
-    The wearable uses this with the ESP32-S3 datasheet current (G1-3,
-    config.WEARABLE_COMPUTE_DRAW_W); the CMOS kappa model above is kept only
+    The wearable uses this with the ESP32-S3 datasheet current
+    (config.WEARABLE_COMPUTE_DRAW_W); the CMOS kappa model above is kept only
     for profiles without a datasheet draw.
     """
     if cpu_freq_hz <= 0:
@@ -242,7 +242,7 @@ def compute_offload_energy(
 
     The wearable transmits the payload at TX power, waits in idle/listening
     mode, and receives the result at RX power (t_rx = result download time;
-    0 reproduces the round-1 model without result return).
+    0 reproduces the earlier model without result return).
 
     Parameters
     ----------
@@ -360,7 +360,7 @@ def compute_cost(
     energy_bounds   : (e_min, e_max) in joules
     privacy_scale   : float — lambda_P; the privacy weight is multiplied by
                       lambda_P and the three weights renormalised to sum 1
-                      (reweighted-greedy frontier, plan E3).  1 = default.
+                      (reweighted-greedy frontier).  1 = default.
 
     Returns
     -------

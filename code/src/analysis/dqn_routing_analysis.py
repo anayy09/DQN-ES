@@ -1,5 +1,5 @@
 """
-dqn_routing_analysis.py — Fix G (Fix2.md): DQN-only routing distribution.
+dqn_routing_analysis.py — DQN-only routing distribution.
 
 Anomaly 1 explanation: DQN-only has disproportionately high energy (35.17 mJ
 vs DQN-ES 7.36 mJ).  Root cause: during early exploration (epsilon ≈ 1.0),

@@ -10,22 +10,22 @@ every declared step against its manifest and summary.
 
 Steps (skip flags in brackets):
   mc_main              main registry, all scales                     [--skip-mc]
-  mc_experiments       E1-E3 arms at the primary scale               [--skip-experiments]
+  mc_experiments       decomposition arms at the primary scale       [--skip-experiments]
   mc_experiments_long  DQN-ES, ES-only, q-mixed curve at N=5000      [--skip-experiments]
   stats                paired tests: main + decomposition families   [--skip-stats]
-  payload_10kb         D15 sensitivity, main registry                [--skip-sensitivity]
-  result_size_*        E9 sweep 1/4/16/64 KB                         [--skip-sensitivity]
-  scaling_M*           E4 fog-node counts 8/16/32                    [--skip-scaling]
-  workload_*           E7 load targets and MMPP-2                    [--skip-workload]
-  channel_*            E7b Rayleigh fading + ARQ loss 0/1/5 %        [--skip-channel]
-  warm_start_*         E12 N_pre 500/2000                            [--skip-warm]
-  ci_noise_*           E14 Gaussian sigma and misclassification      [--skip-cinoise]
+  payload_10kb         10 KB ECG payload sensitivity, main registry  [--skip-sensitivity]
+  result_size_*        result-size sweep 1/4/16/64 KB                [--skip-sensitivity]
+  scaling_M*           fog-node counts 8/16/32                       [--skip-scaling]
+  workload_*           load targets and MMPP-2                       [--skip-workload]
+  channel_*            Rayleigh fading + ARQ loss 0/1/5 %            [--skip-channel]
+  warm_start_*         warm start, N_pre 500/2000                    [--skip-warm]
+  ci_noise_*           CI Gaussian sigma and misclassification       [--skip-cinoise]
   weight_mixed         weight-scheme ablation, mixed CI              [--skip-weight]
   weight_highci        weight-scheme ablation, all-high CI           [--skip-highci]
   mitbih               MIT-BIH trace, main + experiment arms         [--skip-mitbih]
   privacy_guard        Privacy Guard on MedSec-25                    [--skip-privacy]
   ci_module            CI Random Forest + SHAP (xai_ci_module)       [--skip-cimodule]
-  overhead             E4/E13 decision-time split (serial)           [--skip-overhead]
+  overhead             decision-time split (serial)                  [--skip-overhead]
   decomposition        latency decomposition                         [--skip-decomp]
   routing              DQN-only routing distribution                 [--skip-routing]
   model_checks         closed-form component checks                  [--skip-checks]
@@ -418,7 +418,7 @@ def _write_framing_note(results_dir: Path) -> None:
     lines += ['']
 
     # All-high-CI weight schemes: paired numbers only (no recommendation;
-    # interpretation belongs to the manuscript gate, not this script).
+    # interpretation belongs to the manuscript, not this script).
     weight_path = results_dir / 'weight_ablation_highci_raw.json'
     lines += ['WEIGHT SCHEMES, all-high-CI workload (nonlinear vs flat, paired):']
     if weight_path.exists():

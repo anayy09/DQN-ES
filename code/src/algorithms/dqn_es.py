@@ -252,14 +252,14 @@ class DQNESScheduler(BaseScheduler):
         self._rng = np.random.default_rng(seed)
 
         self._max_rate_bps = 1e9          # 1 Gbps reference
-        # Load feature = tasks at the node / 10, capped at 1 (D16: occupancy
+        # Load feature = tasks at the node / 10, capped at 1 (FIFO queues: occupancy
         # is now held until completion, so this feature varies).
         self._max_load = 10
         self._max_rtt_s = 0.5            # 500 ms reference RTT
 
         self.epsilon_history: List[float] = []
         self.dispatch_times_ms: List[float] = []
-        # Per-decision diagnostics read by the environment logger (plan E11)
+        # Per-decision diagnostics read by the environment logger
         self.last_decision_info: dict = {}
         self._last_q: Optional[np.ndarray] = None
         self._last_explored: bool = False
@@ -372,7 +372,7 @@ class DQNESScheduler(BaseScheduler):
             'q_argmax_node': int(self._idx_to_node[int(order[0])]),
             'exec_q_rank': int(np.where(order == exec_idx)[0][0]),
             'candidates': [self._idx_to_node[i] for i in top_k_indices],
-            # Decision-time split (plan E4).  forward = Q forward pass on the
+            # Decision-time split.  forward = Q forward pass on the
             # decision path (0 on exploratory steps); enum = inner
             # enumeration over the K candidates; update = replay push +
             # minibatch update, which is off the decision path.
@@ -380,7 +380,7 @@ class DQNESScheduler(BaseScheduler):
             't_forward_ms': self._last_forward_s * 1000.0,
             't_enum_ms': (t_end - t_enum0) * 1000.0,
             't_update_ms': t_update * 1000.0,
-            # E11: loss of the minibatch update made at this decision (NaN if
+            # Loss of the minibatch update made at this decision (NaN if
             # none) and max Q of the online network at this state
             'td_loss': float(td_loss),
             'q_max': float(np.max(q_values)),

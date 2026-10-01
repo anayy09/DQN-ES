@@ -1,5 +1,5 @@
 """
-Static tier rule (plan E2; self-review F3).
+Static tier rule.
 
 ECG analysis tasks run on the edge gateway; every other task type runs
 locally on the wearable.  No state, no learning, no cost evaluation.

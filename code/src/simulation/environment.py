@@ -124,10 +124,10 @@ class OffloadingEnvironment:
         else:
             task.attack_probability = max(task.attack_probability, 0.0)
 
-        # --- Advance the clock: release tasks finished by now (D16) ---
+        # --- Advance the clock: release tasks finished by now ---
         self.topology.advance_time(task.timestamp)
 
-        # --- Schedule (Fix C: record wall-clock time for select_node) ---
+        # --- Schedule (record wall-clock time for select_node) ---
         if hasattr(self.scheduler, 'last_decision_info'):
             self.scheduler.last_decision_info = {}
         _t0 = time.perf_counter()
@@ -145,7 +145,7 @@ class OffloadingEnvironment:
 
         # --- Latency / energy with component breakdown (core/offload_model) ---
         # Latency is capped at 999 s (overloaded queue) before the idle-energy
-        # term is computed, as in round 1.
+        # term is computed, as in the earlier model.
         out = offload_outcome(self.topology, task, node_id, latency_cap_s=999.0,
                               realised=True)
         latency_s = out.latency_s
@@ -181,7 +181,7 @@ class OffloadingEnvironment:
                 self._battery_j[task.device_id] - energy_j,
             )
 
-        # --- Queue update: the task holds its node until service ends (D16) ---
+        # --- Queue update: the task holds its node until service ends ---
         wait, _done = self.topology.reserve(node_id, out.t_arrive, out.t_proc)
         if abs(wait - out.t_queue) > 1e-9:
             raise RuntimeError('realised FIFO wait differs from the prediction')
@@ -201,11 +201,11 @@ class OffloadingEnvironment:
             'assigned_node':       node_id,
             'node_type':           dst_node.node_type,
             'latency_ms':          latency_s * 1000.0,
-            'latency_tx_ms':       lat_tx_s   * 1000.0,   # Fix F: component
-            'latency_prop_ms':     lat_prop_s  * 1000.0,  # Fix F: component
-            'latency_queue_ms':    lat_queue_s * 1000.0,  # Fix F: component
-            'latency_compute_ms':  lat_comp_s  * 1000.0,  # Fix F: component
-            'latency_downlink_ms': lat_dl_s    * 1000.0,  # E9: return prop + result download
+            'latency_tx_ms':       lat_tx_s   * 1000.0,   # component
+            'latency_prop_ms':     lat_prop_s  * 1000.0,  # component
+            'latency_queue_ms':    lat_queue_s * 1000.0,  # component
+            'latency_compute_ms':  lat_comp_s  * 1000.0,  # component
+            'latency_downlink_ms': lat_dl_s    * 1000.0,  # return prop + result download
             'energy_mj':           energy_j * 1000.0,
             'energy_tx_mj':        out.e_tx * 1000.0,
             'energy_idle_mj':      out.e_idle * 1000.0,
@@ -215,14 +215,14 @@ class OffloadingEnvironment:
             'cost':                cost,
             'sla_violated':        sla_violated,
             'sla_deadline_ms':     task.max_delay_s * 1000.0,
-            # True Phi (label); ci_visible is what the scheduler saw (E14)
+            # True Phi (label); ci_visible is what the scheduler saw
             'ci_score':            task.ci_score if task.ci_true is None else task.ci_true,
             'ci_visible':          task.ci_score,
             'attack_prob':         task.attack_probability,
             'battery_remaining_j': self._battery_j.get(task.device_id, -1.0),
             'timestamp':           task.timestamp,
-            'scheduling_overhead_ms': scheduling_overhead_ms,  # Fix C: timing
-            # Raw-log fields (plan E5, E8, E11; simulation/episode_log.py)
+            'scheduling_overhead_ms': scheduling_overhead_ms,  # timing
+            # Raw-log fields (simulation/episode_log.py)
             'task_type':           task.task_type,
             'ci_tier':             ci_tier(task.ci_score if task.ci_true is None
                                            else task.ci_true),

@@ -124,7 +124,7 @@ def _sample_attack_prob(ciciot_events: Optional[list],
 def _ci_for_distribution(tier: str, rng: random.Random) -> float:
     """Sample a CI score from the specified CI tier."""
     if tier == "all_high":
-        # Fix B: ICU scenario — all tasks arrive with CI uniformly in [0.8, 1.0]
+        # ICU scenario — all tasks arrive with CI uniformly in [0.8, 1.0]
         return round(rng.uniform(0.8, 1.0), 4)
     elif tier == "high":
         return round(rng.uniform(0.7, 1.0), 4)
@@ -139,7 +139,7 @@ def _task_from_mendeley(event: dict,
                         device_id: int,
                         timestamp: float,
                         attack_prob: float) -> SimulationTask:
-    """Convert a Mendeley event dict into a SimulationTask."""
+    """Convert a Kaggle IoMT event dict into a SimulationTask."""
     return SimulationTask(
         task_id             = task_id,
         device_id           = device_id,
@@ -230,7 +230,7 @@ def generate_synthetic_tasks(
         'low'    → all low CI
     seed : int
         Random seed for reproducibility.
-    arrival_process : 'poisson' (default) | 'mmpp2'   (plan E7)
+    arrival_process : 'poisson' (default) | 'mmpp2'
     arrival_rate : float, optional
         Long-run arrival rate in tasks/s (default n / 300).
     arrival_seed : int, optional
@@ -252,7 +252,7 @@ def generate_synthetic_tasks(
             k=n,
         )
     elif ci_distribution == "all_high":
-        # Fix B: ICU scenario — all tasks have CI in [0.8, 1.0]
+        # ICU scenario — all tasks have CI in [0.8, 1.0]
         tiers = ["all_high"] * n
     else:
         tiers = [ci_distribution] * n
@@ -310,7 +310,7 @@ def generate_event_stream(
         seed:           int = 42,
 ) -> List[SimulationTask]:
     """
-    Blend real events from Mendeley / MIT-BIH with synthetic tasks to reach
+    Blend real events from Kaggle IoMT / MIT-BIH with synthetic tasks to reach
     n_tasks, assign Poisson arrival timestamps, and attach attack
     probabilities sampled from CICIoMT.
 
@@ -361,7 +361,7 @@ def generate_event_stream(
     print(f"[EventGen] Will use real   : {n_real}")
     print(f"[EventGen] Will synthesise : {n_synthetic}")
 
-    # --- Decide split between Mendeley and MIT-BIH ---
+    # --- Decide split between Kaggle IoMT and MIT-BIH ---
     if mendeley_pool and mitbih_pool:
         n_mendeley = int(n_real * len(mendeley_pool) /
                          (len(mendeley_pool) + len(mitbih_pool)))
@@ -373,7 +373,7 @@ def generate_event_stream(
         n_mendeley = 0
         n_mitbih   = n_real
 
-    # --- Mendeley tasks ---
+    # --- Kaggle IoMT tasks ---
     for i in range(n_mendeley):
         ev  = mendeley_pool[i % len(mendeley_pool)]
         ts  = timestamps[task_id]
