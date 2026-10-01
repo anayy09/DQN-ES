@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the archived release and the associated article."
+type: software
+title: "DQN-ES: simulation and analysis code for Deep Q-Network Candidate Restriction and Acuity Leakage in Privacy-Aware Healthcare IoT Task Offloading"
+abstract: "Event-driven simulator of task offloading from IoMT wearables to edge, fog and cloud nodes, with the DQN-ES scheduler (DQN top-K candidate restriction followed by exhaustive enumeration over the K candidates), per-task and random-restriction baselines, an entropy-reweighted greedy frontier, a criticality-agnostic static rule, a learned acuity-inference adversary, paired statistics and run manifests."
+version: "v2.0.0"
+date-released: "2026-10-01"
+license: MIT
+repository-code: "https://github.com/anayy09/DQN-ES"
+keywords:
+  - task offloading
+  - Internet of Medical Things
+  - deep Q-network
+  - traffic analysis
+  - privacy
+  - edge computing
+authors:
+  - family-names: "Sinhal"
+    given-names: "Anay"
+    affiliation: "University of Florida, Gainesville, Florida, USA"
+    email: "sinhal.anay@ufl.edu"
+  - family-names: "Sinhal"
+    given-names: "Amit"
+    affiliation: "JK Lakshmipat University, Jaipur, India"
+    email: "amit.sinhal@jklu.edu.in"
+  - family-names: "Sinhal"
+    given-names: "Arpana"
+    affiliation: "Manipal University Jaipur, Jaipur, India"
+    email: "arpana.sinhal@jaipur.manipal.edu"

@@ -28,12 +28,13 @@ analysis/*                         drivers -> results/*.json, *.csv  ->  analysi
 
 **Network (`core/network.py`, `simulation/topology.py`).** The topology has N wearables within 50 m of an edge gateway, M fog nodes 1 to 5 km away, and a cloud 50 km away. Each wearable has a direct link to every destination. The uplink rate is R = B log2(1 + P h / N0), with h = (d0/d)^α and no interference. The result-return downlink uses the same link as a reciprocal channel, with the serving side transmitting at `DOWNLINK_TX_POWER_W`.
 
-**Queues (D16).** Every node, including a wearable executing locally, is a FIFO server. A task that reaches node j at time a waits max(0, busy_until_j − a) and is then served for C_i / f_j, using its own C_i. The node stays occupied until service ends; `advance_time()` releases it at completion time. Schedulers see the current backlog when they evaluate a node, and this prediction equals the realised wait.
+**Queues.** Every node, including a wearable executing locally, is a FIFO server. A task that reaches node j at time a waits max(0, busy_until_j − a) and is then served for C_i / f_j, using its own C_i. The node stays occupied until service ends; `advance_time()` releases it at completion time. Schedulers see the current backlog when they evaluate a node, and this prediction equals the realised wait.
 
 **Latency and energy (`core/offload_model.py`).** A single function serves the scheduler cost, the normalisation bounds and the realised metrics.
 - Offload latency: L = t_tx + t_prop + t_queue + t_proc + t_dl, where t_dl = t_prop + S_res / R_dl.
-- Wearable offload energy: E = P_tx·t_tx + P_rx·t_rx + P_idle·(L − t_tx − t_rx).
-- Local execution: L = t_queue + C_i / f_w and E = κ C_i f_w².
+- Wearable offload energy: E = P_tx·t_tx + P_rx·t_rx + P_wait·(L − t_tx − t_rx), with battery draws from the ESP32-S3 datasheet (TX 283 mA, RX 88 mA, wait 47.6 mA, all at 3.3 V; `WEARABLE_TX_DRAW_W`, `WEARABLE_RX_POWER_W`, `WEARABLE_WAIT_DRAW_W` in `src/config.py`). The radiated power used in the rate equation (18.5 dBm) is a separate constant.
+- Local execution: L = t_queue + C_i / f_w and E = P_cmp·C_i / f_w (compute draw 65.9 mA at 3.3 V).
+- Optional Rayleigh block fading and ARQ packet loss (`fading`, `packet_loss`): schedulers plan with the expected channel and the environment realises the sampled one.
 
 **Cost (`core/cost_function.py`).** F = ŵ_E Ê + ŵ_L L̂ + ŵ_P R_P. The CI-adaptive weights are exp(−α_E Φ), (e^{β_L Φ} − 1)/(e^{β_L} − 1) and (1 − Φ)^{γ_P}, renormalised to sum 1. R_P = ρ (1 − H/H_max), where H is the entropy of the device's last W = 50 destinations. `set_weight_mode()` switches the weight scheme for the ablation, and `privacy_scale` (λ_P) rescales w_P.
 
@@ -51,7 +52,7 @@ analysis/*                         drivers -> results/*.json, *.csv  ->  analysi
 | Stream | Seed |
 |---|---|
 | task generator, scheduler (DQN init, exploration, replay sampling) | `replicate_seed(r, N)` = 42 + 1000 r + N |
-| topology, environment (attack bursts), MMPP arrivals, CI noise, warm-start pre-training | children of `SeedSequence(replicate_seed(r, N))` |
+| topology, environment (attack bursts), MMPP arrivals, CI noise, warm-start pre-training, fading/ARQ | children of `SeedSequence(replicate_seed(r, N))` |
 
 `config.make_scheduler()` passes `seed=` to every scheduler that accepts it. All drivers build replicates through `simulation/replicate.py`, so replicate r is the same draw for every algorithm. `analysis/paired_stats.py` pairs algorithms by `run_id`.
 
