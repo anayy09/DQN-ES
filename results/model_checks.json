@@ -1,8 +1,8 @@
 [
  {
   "check": "uplink t_tx (ms)",
-  "expected": 6.508461141892035,
-  "simulated": 6.508461141892035,
+  "expected": 6.802937754646659,
+  "simulated": 6.802937754646659,
   "rel_error": 0.0,
   "tolerance": 1e-09,
   "pass": true
@@ -33,16 +33,16 @@
  },
  {
   "check": "offload latency (ms)",
-  "expected": 106.5219402528098,
-  "simulated": 106.5219402528098,
+  "expected": 106.81641686556442,
+  "simulated": 106.81641686556442,
   "rel_error": 0.0,
   "tolerance": 1e-09,
   "pass": true
  },
  {
   "check": "offload wearable energy (mJ)",
-  "expected": 4.462394677067298,
-  "simulated": 4.462394677067298,
+  "expected": 22.06516457087503,
+  "simulated": 22.06516457087503,
   "rel_error": 0.0,
   "tolerance": 1e-09,
   "pass": true
@@ -57,8 +57,32 @@
  },
  {
   "check": "local energy (mJ)",
-  "expected": 8.64,
-  "simulated": 8.64,
+  "expected": 135.91875000000002,
+  "simulated": 135.91875000000002,
+  "rel_error": 0.0,
+  "tolerance": 1e-09,
+  "pass": true
+ },
+ {
+  "check": "offload TX energy (mJ)",
+  "expected": 6.353263569064514,
+  "simulated": 6.353263569064514,
+  "rel_error": 0.0,
+  "tolerance": 1e-09,
+  "pass": true
+ },
+ {
+  "check": "offload wait energy (mJ)",
+  "expected": 15.708015708000001,
+  "simulated": 15.708015708000001,
+  "rel_error": 0.0,
+  "tolerance": 1e-09,
+  "pass": true
+ },
+ {
+  "check": "offload RX energy (mJ)",
+  "expected": 0.003885293810515632,
+  "simulated": 0.003885293810515632,
   "rel_error": 0.0,
   "tolerance": 1e-09,
   "pass": true

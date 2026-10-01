@@ -1,5 +1,5 @@
 frontier,y_metric,scale,reference,status,n_replicates,n_excluded,median_excess,ci_lo,ci_hi,arms_used,excluded_runs
-q_mixed,avg_privacy_risk,1000,DQN-ES,ok,29,1,0.002489139303932686,-0.012301902546984711,0.010433923676656909,q-mixed[q=0];q-mixed[q=0.1];q-mixed[q=0.25];q-mixed[q=0.5];q-mixed[q=0.75];q-mixed[q=1],19
-q_mixed,avg_privacy_risk_ss,1000,DQN-ES,ok,29,1,0.030050862144883617,0.017454176913180464,0.03842835837669217,q-mixed[q=0];q-mixed[q=0.1];q-mixed[q=0.25];q-mixed[q=0.5];q-mixed[q=0.75];q-mixed[q=1],19
-lambda_p,avg_privacy_risk,1000,DQN-ES,ok,27,3,0.03920743581535058,0.031443148237674357,0.051539527314715006,ES-only[lP=0.5];ES-only[lP=1];ES-only[lP=1.5];ES-only[lP=2];ES-only[lP=3];ES-only[lP=5];ES-only[lP=10],3;19;26
-lambda_p,avg_privacy_risk_ss,1000,DQN-ES,ok,27,3,0.036643919208418585,0.013761680551564792,0.059536851674436175,ES-only[lP=0.5];ES-only[lP=1];ES-only[lP=1.5];ES-only[lP=2];ES-only[lP=3];ES-only[lP=5];ES-only[lP=10],3;19;26
+q_mixed,avg_privacy_risk,1000,DQN-ES,ok,30,0,0.008285566190328303,-0.002257193210252889,0.012687747741854383,q-mixed[q=0];q-mixed[q=0.1];q-mixed[q=0.25];q-mixed[q=0.5];q-mixed[q=0.75];q-mixed[q=1],
+q_mixed,avg_privacy_risk_ss,1000,DQN-ES,ok,30,0,0.03761701509612525,0.02642399559622363,0.04791486855301014,q-mixed[q=0];q-mixed[q=0.1];q-mixed[q=0.25];q-mixed[q=0.5];q-mixed[q=0.75];q-mixed[q=1],
+lambda_p,avg_privacy_risk,1000,DQN-ES,ok,27,3,0.028564449302616035,0.0075384373820316375,0.0493532669964033,ES-only[lP=0.5];ES-only[lP=1];ES-only[lP=1.5];ES-only[lP=2];ES-only[lP=3];ES-only[lP=5];ES-only[lP=10],3;19;26
+lambda_p,avg_privacy_risk_ss,1000,DQN-ES,ok,27,3,0.03779912687744724,-0.00113734945300481,0.04345407439770965,ES-only[lP=0.5];ES-only[lP=1];ES-only[lP=1.5];ES-only[lP=2];ES-only[lP=3];ES-only[lP=5];ES-only[lP=10],3;19;26
