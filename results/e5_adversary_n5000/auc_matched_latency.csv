@@ -1,0 +1,3 @@
+auc_source,frontier,y_metric,frontier_points,arms_used,label,status,n_replicates,n_excluded,median_excess,ci_lo,ci_hi,excluded_runs,exclusion_reasons
+declared_split,q_mixed,adversary_auc,6,q-mixed[q=0];q-mixed[q=0.1];q-mixed[q=0.25];q-mixed[q=0.5];q-mixed[q=0.75];q-mixed[q=1],"secondary (P2b), not pre-declared",ok,8,2,-0.02312584640073201,-0.032414442124499177,0.00816669462841002,24;26,run 24: DQN-ES latency 111.08 ms above the slowest frontier point 107.96 ms; run 26: DQN-ES latency 105.80 ms above the slowest frontier point 99.25 ms
+declared_split,lambda_p,adversary_auc,0,,"secondary (P2b), not pre-declared",not computable (frontier arms absent),,,,,,,

@@ -1,0 +1,80 @@
+{
+ "run_id": "0b1c58e46a1d5a2a",
+ "step": "post_aucmatched_n5000",
+ "code": {
+  "git_commit": "dccf2a0c67e159867e8a65d77527e4fd7dd298ee",
+  "git_tag": null,
+  "git_dirty": true,
+  "git_dirty_paths": [
+   ".gitignore",
+   "results/d17a_robustness/matched_latency_robustness.csv",
+   "results/e11_exploration/e11_by_phase.csv",
+   "results/e11_exploration/e11_curves.csv",
+   "results/e11_exploration/e11_qrank.csv",
+   "results/e11_exploration/e11_summary.csv",
+   "results/e5_adversary/adversary_auc_by_replicate.json",
+   "results/e5_adversary/adversary_auc_by_replicate_all.json",
+   "results/e5_adversary/adversary_auc_ci.csv",
+   "results/e5_adversary/adversary_auc_summary.csv",
+   "results/e5_adversary/mutual_information.csv",
+   "results/e5_adversary/mutual_information_by_replicate.json",
+   "results/e5_adversary/rp_vs_auc_correlation.csv",
+   "results/e5_adversary/rp_vs_auc_points.csv",
+   "results/e5_adversary/stat_tests_privacy_inference.csv",
+   "results/e8_energy/energy_profiles.csv",
+   "results/e8_energy_10kb/energy_profiles.csv",
+   "results/exploratory/dominance_vs_dqn_es.csv",
+   "results/exploratory/paired_e2_dqnes_vs_randomk.csv",
+   "results/exploratory/paired_headline.csv",
+   "results/exploratory/paired_ksweep.csv",
+   "results/manifests/runs.jsonl"
+  ],
+  "entrypoint": "C:\\Users\\sinhal.anay\\OneDrive - University of Florida\\Papers\\Bio-Inspired Adaptive Task Offloading System\\code\\src\\analysis\\post_run.py aucmatched --step post_aucmatched_n5000 --e5-dir ../results/e5_adversary_n5000 --summaries ../results/experiments_n5000/mc_all_summary.json --scale 5000 --out ../results/e5_adversary_n5000 --label secondary (P2b), not pre-declared"
+ },
+ "config": {
+  "resolved_sha256": "1843622048fbcf2090d8995ecc2c5ce73cc0bf4ab73debd625f9b6e7174f4c7b",
+  "params": {
+   "command": "aucmatched",
+   "raw_dirs": [],
+   "out": "results/e5_adversary_n5000",
+   "algorithms": null,
+   "e5_dir": "../results/e5_adversary_n5000",
+   "summaries": [
+    "results/experiments_n5000/mc_all_summary.json"
+   ],
+   "scale": 5000,
+   "pairs": [],
+   "tag": "pairs",
+   "label": "secondary (P2b), not pre-declared"
+  }
+ },
+ "seeds": {
+  "rule": "replicate_seed(r, N) = 42 + 1000 r + N for tasks and scheduler; topology/env/arrival/ci_noise/pretrain streams = SeedSequence(replicate_seed(r, N)).spawn(5)",
+  "base_seeds": {}
+ },
+ "data": {},
+ "env": {
+  "cpu": "Intel(R) Core(TM) Ultra 7 266V",
+  "logical_cpus": 8,
+  "os": "win32",
+  "python": "3.14.6",
+  "numpy": "2.4.6",
+  "packages": {
+   "numpy": "2.4.6",
+   "scipy": "1.17.1",
+   "scikit-learn": "1.9.1",
+   "shap": "0.52.0",
+   "pandas": "3.0.3",
+   "matplotlib": "3.11.0"
+  }
+ },
+ "determinism": {
+  "claimed_deterministic": true,
+  "note": "all RNGs seeded per replicate; bitwise equality is expected on the same machine and library versions; BLAS reduction order may differ across machines"
+ },
+ "outputs": [],
+ "started_utc": "2026-10-01T16:18:15Z",
+ "finished_utc": "2026-10-01T16:20:16Z",
+ "wall_s": 121.2,
+ "status": "finished"
+}
