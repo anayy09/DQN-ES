@@ -93,7 +93,7 @@ Two pipeline steps are not reported in the article. `privacy_guard` is an attack
 
 ### Raw logs
 
-The pipeline writes per-task logs (gzip CSV, one file per scheduler and replicate) to `raw/` inside each output directory: `results/raw/<mc_full|mitbih>/n<N>/` and `results/<sub-experiment>/raw/...`. They are not in the repository; they total several hundred MB. The logs behind the article are archived separately on Zenodo with the same directory layout: [raw-log archive DOI].
+The pipeline writes per-task logs (gzip CSV, one file per scheduler and replicate) to `raw/` inside each output directory: `results/raw/<mc_full|mitbih>/n<N>/` and `results/<sub-experiment>/raw/...`. They are not in the repository; they total several hundred MB. The logs behind the article are archived separately on Zenodo with the same directory layout: [doi:10.5281/zenodo.23112068](https://doi.org/10.5281/zenodo.23112068). Unzip the archive at the root of a clone; `MANIFEST.sha256` inside it lists the SHA-256 of every file.
 
 ---
 
@@ -173,7 +173,7 @@ Replicate r at episode length N uses base seed 42 + 1000·r + N for the task str
 
 ## Citation
 
-If you use this code, please cite the article and the archived release. `CITATION.cff` gives the metadata, and the Zenodo DOI is shown on the repository's release page.
+If you use this code, please cite the article and the archived release. The code is archived on Zenodo at [doi:10.5281/zenodo.23112080](https://doi.org/10.5281/zenodo.23112080), a DOI that always resolves to the newest version (v2.0.0 alone: doi:10.5281/zenodo.23112081). The per-task logs are at [doi:10.5281/zenodo.23112068](https://doi.org/10.5281/zenodo.23112068). `CITATION.cff` gives the metadata.
 
 ## License
 
