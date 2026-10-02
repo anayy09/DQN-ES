@@ -8,3 +8,6 @@ simulators/
 latex/
 submission/
 docs/
+*.md
+!README.md
+.env

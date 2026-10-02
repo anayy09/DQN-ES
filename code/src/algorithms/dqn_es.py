@@ -14,7 +14,11 @@ Architecture:
   3. Hybrid flow:
      - DQN narrows search to K ≪ N candidate nodes
      - ES performs fine-grained combinatorial search within that subspace
-     - DQN policy is updated online via experience replay (DQN training)
+     - DQN policy is updated online via experience replay (DQN training).
+       A transition (s_t, a_t, r_t, s_{t+1}) is stored when decision t+1
+       arrives, so s_{t+1} is the state at the next scheduling decision.
+       a_t is the executed action (argmin F within the top-K set); Q-learning
+       is off-policy, so any behaviour policy with coverage is valid.
 
 References:
   Mnih, V. et al. (2015). Human-level control through deep reinforcement
@@ -32,6 +36,19 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from src.algorithms.base_scheduler import BaseScheduler
+from src.config import (
+    DQN_TOP_K,
+    DQN_BATCH_SIZE,
+    DQN_GAMMA,
+    DQN_HIDDEN_DIM,
+    DQN_LR,
+    DQN_REPLAY_CAPACITY,
+    DQN_TARGET_SYNC,
+    EPSILON_DECAY,
+    EPSILON_INIT,
+    EPSILON_MIN,
+    GLOBAL_SEED,
+)
 from src.core.cost_function import (
     compute_cost,
     compute_normalized_weights,
@@ -50,14 +67,17 @@ class ReplayBuffer:
     """
     Fixed-capacity circular experience replay buffer for DQN training.
     """
-    def __init__(self, capacity: int = 10_000):
+    def __init__(self, capacity: int = 10_000, seed: Optional[int] = None):
         self.buffer: deque = deque(maxlen=capacity)
+        # Own RNG so minibatch sampling depends only on the scheduler seed,
+        # not on the process-global `random` state.
+        self._rng = random.Random(seed)
 
     def push(self, state: np.ndarray, action: int, reward: float, next_state: np.ndarray, done: bool) -> None:
         self.buffer.append((state.copy(), int(action), float(reward), next_state.copy(), bool(done)))
 
     def sample(self, batch_size: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        batch = random.sample(self.buffer, batch_size)
+        batch = self._rng.sample(self.buffer, batch_size)
         states, actions, rewards, next_states, dones = zip(*batch)
         return (
             np.array(states, dtype=float),
@@ -174,21 +194,27 @@ class DQNESScheduler(BaseScheduler):
     def __init__(
         self,
         topology,
-        n_candidate_nodes: int = 3,
-        epsilon: float = 1.0,
-        epsilon_decay: float = 0.995,
-        epsilon_min: float = 0.05,
-        gamma: float = 0.95,
-        lr: float = 0.001,
-        replay_capacity: int = 10_000,
-        batch_size: int = 32,
-        target_sync_freq: int = 50,
-        seed: int = 42,
+        n_candidate_nodes: int = DQN_TOP_K,
+        epsilon: float = EPSILON_INIT,
+        epsilon_decay: float = EPSILON_DECAY,
+        epsilon_min: float = EPSILON_MIN,
+        gamma: float = DQN_GAMMA,
+        lr: float = DQN_LR,
+        replay_capacity: int = DQN_REPLAY_CAPACITY,
+        batch_size: int = DQN_BATCH_SIZE,
+        target_sync_freq: int = DQN_TARGET_SYNC,
+        seed: int = GLOBAL_SEED,
         offload_history: Optional[dict] = None,
     ):
         super().__init__(topology, offload_history)
 
-        self.n_candidate_nodes = min(n_candidate_nodes, len(self._candidate_nodes))
+        # K: size of the DQN candidate set over the network destinations
+        # (edge, fog nodes, cloud; local execution is not an action).
+        if not 1 <= n_candidate_nodes <= len(self._candidate_nodes):
+            raise ValueError(
+                f'K must be in 1..{len(self._candidate_nodes)}, '
+                f'got {n_candidate_nodes}')
+        self.n_candidate_nodes = int(n_candidate_nodes)
         self.epsilon = epsilon
         self.epsilon_decay = epsilon_decay
         self.epsilon_min = epsilon_min
@@ -206,29 +232,38 @@ class DQNESScheduler(BaseScheduler):
         self._online_net = DQNNetwork(
             state_dim=self.state_dim,
             action_dim=self._n_nodes,
-            hidden_dim=64,
+            hidden_dim=DQN_HIDDEN_DIM,
             seed=seed,
         )
         self._target_net = DQNNetwork(
             state_dim=self.state_dim,
             action_dim=self._n_nodes,
-            hidden_dim=64,
+            hidden_dim=DQN_HIDDEN_DIM,
             seed=seed,
         )
         self._target_net.copy_weights_from(self._online_net)
 
-        self._replay = ReplayBuffer(capacity=replay_capacity)
+        self._replay = ReplayBuffer(capacity=replay_capacity, seed=seed)
+        # (state, action_idx, reward) of the last decision, awaiting s_{t+1}
+        self._pending: Optional[Tuple[np.ndarray, int, float]] = None
 
         self._step_count = 0
         self._total_loss = 0.0
         self._rng = np.random.default_rng(seed)
 
         self._max_rate_bps = 1e9          # 1 Gbps reference
-        self._max_load = 100              # max tasks in queue
+        # Load feature = tasks at the node / 10, capped at 1 (FIFO queues: occupancy
+        # is now held until completion, so this feature varies).
+        self._max_load = 10
         self._max_rtt_s = 0.5            # 500 ms reference RTT
 
         self.epsilon_history: List[float] = []
         self.dispatch_times_ms: List[float] = []
+        # Per-decision diagnostics read by the environment logger
+        self.last_decision_info: dict = {}
+        self._last_q: Optional[np.ndarray] = None
+        self._last_explored: bool = False
+        self._last_forward_s: float = 0.0
 
     def get_state(self, task: HealthcareTask) -> np.ndarray:
         """
@@ -293,29 +328,70 @@ class DQNESScheduler(BaseScheduler):
             self.record_decision(task.device_id, node_id)
             return node_id
 
+        _t = time.perf_counter
+        t0 = _t()
         lat_bounds, eng_bounds = self.estimate_feasible_bounds(task)
+        t_bounds = _t() - t0
 
         # Expanded state representation
         state = self.get_state(task)
 
-        t_dispatch_start = time.perf_counter()
+        # Complete the previous decision's transition: its successor state
+        # s_{t+1} is the state observed at this (the next) scheduling
+        # decision.  The episode is one continuing stream, so done = False.
+        t0 = _t()
+        td_loss = float('nan')
+        if self._pending is not None:
+            p_state, p_action, p_reward = self._pending
+            self._replay.push(p_state, p_action, p_reward, state, False)
+            self._pending = None
+            if len(self._replay) >= self.batch_size:
+                td_loss = self.update_policy(self.batch_size)
+        t_update = _t() - t0
+
+        eps_used = self.epsilon
+        t_dispatch_start = _t()
         top_k_indices = self._dqn_select_top_k(state)
+        t_enum0 = _t()
 
         # Exhaustive search within Top-K subspace
         best_node_id = self._exhaustive_search(task, top_k_indices, lat_bounds, eng_bounds)
-        self.dispatch_times_ms.append((time.perf_counter() - t_dispatch_start) * 1000.0)
+        t_end = _t()
+        self.dispatch_times_ms.append((t_end - t_dispatch_start) * 1000.0)
+
+        # Diagnostics (outside the timed region): Q ordering of the executed
+        # action.  On exploratory steps Q is evaluated here only for logging;
+        # it does not touch any RNG, so decisions are unchanged.
+        q_values = (self._last_q if self._last_q is not None
+                    else self._online_net.forward(state))
+        order = np.argsort(q_values)[::-1]
+        exec_idx = self._idx_to_node.index(best_node_id)
+        self.last_decision_info = {
+            'explored': bool(self._last_explored),
+            'epsilon': float(eps_used),
+            'q_argmax_node': int(self._idx_to_node[int(order[0])]),
+            'exec_q_rank': int(np.where(order == exec_idx)[0][0]),
+            'candidates': [self._idx_to_node[i] for i in top_k_indices],
+            # Decision-time split.  forward = Q forward pass on the
+            # decision path (0 on exploratory steps); enum = inner
+            # enumeration over the K candidates; update = replay push +
+            # minibatch update, which is off the decision path.
+            't_bounds_ms': t_bounds * 1000.0,
+            't_forward_ms': self._last_forward_s * 1000.0,
+            't_enum_ms': (t_end - t_enum0) * 1000.0,
+            't_update_ms': t_update * 1000.0,
+            # Loss of the minibatch update made at this decision (NaN if
+            # none) and max Q of the online network at this state
+            'td_loss': float(td_loss),
+            'q_max': float(np.max(q_values)),
+        }
 
         _, latency_s, energy_j, privacy_risk = self.evaluate_node(task, best_node_id, lat_bounds, eng_bounds)
 
         action_idx = self._idx_to_node.index(best_node_id)
         reward = self.compute_reward(task, best_node_id, latency_s, energy_j, privacy_risk)
-        next_state = self.get_state(task)
-        done = False
-
-        self._replay.push(state, action_idx, reward, next_state, done)
-
-        if len(self._replay) >= self.batch_size:
-            self.update_policy(self.batch_size)
+        # Stored when the next decision arrives (see above).
+        self._pending = (state, action_idx, reward)
 
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
         self.epsilon_history.append(self.epsilon)
@@ -332,11 +408,17 @@ class DQNESScheduler(BaseScheduler):
         K = self.n_candidate_nodes
 
         if self._rng.random() < self.epsilon:
+            # Exploration: a uniformly random K-subset of the destinations
             indices = self._rng.choice(self._n_nodes, size=min(K, self._n_nodes), replace=False).tolist()
+            self._last_q, self._last_explored = None, True
+            self._last_forward_s = 0.0
         else:
+            t0 = time.perf_counter()
             q_values = self._online_net.forward(state)
             top_k_idx = np.argsort(q_values)[::-1][:K]
             indices = top_k_idx.tolist()
+            self._last_forward_s = time.perf_counter() - t0
+            self._last_q, self._last_explored = q_values, False
 
         return indices
 

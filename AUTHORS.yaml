@@ -1,0 +1,37 @@
+# AUTHORS.yaml
+#
+# The only source of author identity for this project. The manuscript and
+# supplement author blocks, CITATION.cff and the Zenodo creator list are
+# taken from or checked against this file. Values are copied from the author
+# block and Declarations of the manuscript. ORCIDs are left empty until the
+# authors supply them.
+
+project: "DQN-ES: DQN candidate restriction and acuity leakage in privacy-aware IoMT task offloading"
+corresponding: 3          # 1-based index into the list below
+
+authors:
+  - name: "Anay Sinhal"
+    given: "Anay"
+    family: "Sinhal"
+    email: "sinhal.anay@ufl.edu"
+    affiliation: "University of Florida, Gainesville, Florida, USA"
+    orcid: ""
+    contribution: "Developed the system architecture, conducted the simulations, performed the data analysis, and wrote the main manuscript text"
+  - name: "Amit Sinhal"
+    given: "Amit"
+    family: "Sinhal"
+    email: "amit.sinhal@jklu.edu.in"
+    affiliation: "JK Lakshmipat University, Jaipur, India"
+    orcid: ""
+    contribution: "Supervision, contributed to the theoretical framework, critically revised the manuscript"
+  - name: "Arpana Sinhal"
+    given: "Arpana"
+    family: "Sinhal"
+    email: "arpana.sinhal@jaipur.manipal.edu"
+    affiliation: "Manipal University Jaipur, Jaipur, India"
+    orcid: ""
+    contribution: "Supervision, contributed to the theoretical framework, critically revised the manuscript"
+
+funding: "The authors declare that no funds, grants, or other support were received during the preparation of this manuscript."
+competing_interests: "The authors declare no competing interests."
+ethics: "Not applicable. This study did not involve any new experiments on human participants or animals."

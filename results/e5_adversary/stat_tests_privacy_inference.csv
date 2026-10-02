@@ -1,0 +1,4 @@
+family,metric,reference,comparator,status,n_pairs,mean_ref,mean_cmp,hl_diff,ci_lo,ci_hi,w_plus,n_nonzero,p_exact,family_size,p_holm,reject_holm,rank_biserial_r,tost_margin,p_tost
+privacy_inference,adversary_auc,DQN-ES,ES-only,tested,10,0.5687203893882914,0.6115094102351879,-0.042174211657907246,-0.0499799603854576,-0.03521427714611858,0.0,10,0.001953125,3,0.005859375,True,-1.0,,
+privacy_inference,adversary_auc,DQN-ES,Random-K[K=3],tested,10,0.5687203893882914,0.5342746666266245,0.036081455219596936,0.013765155179965016,0.05352029228794308,55.0,10,0.001953125,3,0.005859375,True,1.0,,
+privacy_inference,adversary_auc,DQN-ES,Static-Tier,tested,10,0.5687203893882914,0.48292243021818404,0.08575844646410216,0.07384973721930244,0.10067280735032733,55.0,10,0.001953125,3,0.005859375,True,1.0,,

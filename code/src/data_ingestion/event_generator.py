@@ -26,51 +26,10 @@ from typing import List, Optional
 
 
 # ---------------------------------------------------------------------------
-# Task-type parameter profiles
-# (identical to parse_mendeley to keep a single source of truth for the
-#  simulation; they are repeated here so event_generator is self-contained)
+# Task-type parameter profiles: single source in src/core/task.py
+# (ECG payload from src.config.ECG_PAYLOAD_BITS).
 # ---------------------------------------------------------------------------
-# Cycle counts updated to realistic MCU-class workloads measured on
-# Cortex-M / ESP32-S3 in published TinyML benchmarks (Liu 2020; Zhang 2021;
-# Banbury 2021 MLPerf-Tiny).  Earlier values (12 M cycles for ECG CNN) were
-# underestimates and caused all local-execution tasks to meet their deadlines
-# on a 240 MHz wearable, yielding the spurious 0.00 % SLA violation count
-# in earlier Table III drafts.
-TASK_PROFILES = {
-    "ecg_analysis": {
-        # Pan-Tompkins QRS detection + 8-layer CNN arrhythmia classifier
-        # on a 10 s ECG window.  ~150 M cycles measured on Cortex-M4 @ 80 MHz
-        # (Zhang et al., 2021); on ESP32-S3 @ 240 MHz this maps to ~625 ms,
-        # exceeding the 500 ms real-time arrhythmia-alarm deadline.
-        "data_size_bits": 40_000_000,   # 5 MB raw window
-        "cpu_cycles":     150_000_000,
-        "max_delay_s":    0.5,
-        "privacy_sensitivity": 0.9,
-    },
-    "spo2_monitoring": {
-        # Beer-Lambert AC/DC ratio + median filter; very lightweight.
-        # ~5 M cycles -> 21 ms locally; passes 2 s deadline.
-        "data_size_bits": 40_000,
-        "cpu_cycles":     5_000_000,
-        "max_delay_s":    2.0,
-        "privacy_sensitivity": 0.6,
-    },
-    "bp_analysis": {
-        # Cuffless PPG feature extraction + GBM regression (~30 M cycles).
-        "data_size_bits": 400_000,
-        "cpu_cycles":     30_000_000,
-        "max_delay_s":    1.0,
-        "privacy_sensitivity": 0.8,
-    },
-    "multi_vital": {
-        # ECG + SpO2 + BP fusion pipeline (~120 M cycles).
-        # On ESP32-S3 @ 240 MHz -> 500 ms; tight against 800 ms deadline.
-        "data_size_bits": 8_000_000,
-        "cpu_cycles":     120_000_000,
-        "max_delay_s":    0.8,
-        "privacy_sensitivity": 0.85,
-    },
-}
+from src.core.task import TASK_PROFILES  # noqa: E402
 
 # Task-type proportions for synthetic generation
 TASK_TYPE_WEIGHTS = {
@@ -118,6 +77,41 @@ def _poisson_timestamps(n: int, lam: float, rng: random.Random) -> list:
     return timestamps
 
 
+def _mmpp2_timestamps(n: int, lam: float, rng: random.Random,
+                      multipliers, switch_probs) -> list:
+    """
+    MMPP-2 arrival times with long-run rate lam.  State s in {0, 1}; the
+    inter-arrival time in state s is Exp(lam * m_s); after each arrival the
+    state flips with probability switch_probs[s].  The multipliers are
+    rescaled so the stationary mean inter-arrival time is exactly 1 / lam.
+    """
+    p01, p10 = switch_probs
+    pi0, pi1 = p10 / (p01 + p10), p01 / (p01 + p10)   # arrival-stationary
+    c = pi0 / multipliers[0] + pi1 / multipliers[1]
+    m = (multipliers[0] * c, multipliers[1] * c)
+    state = 0 if rng.random() < pi0 else 1
+    t, out = 0.0, []
+    for _ in range(n):
+        t += rng.expovariate(lam * m[state])
+        out.append(round(t, 6))
+        if rng.random() < (p01 if state == 0 else p10):
+            state = 1 - state
+    return out
+
+
+def mean_cycles_per_task() -> float:
+    """E[C_i] under TASK_TYPE_WEIGHTS."""
+    tot = sum(TASK_TYPE_WEIGHTS.values())
+    return sum(w * TASK_PROFILES[k]['cpu_cycles']
+               for k, w in TASK_TYPE_WEIGHTS.items()) / tot
+
+
+def arrival_rate_for_edge_load(rho: float) -> float:
+    """lambda such that the offered edge utilisation lambda E[C] / f_edge = rho."""
+    from src.core.hardware_profiles import EDGE_GATEWAY_RPI4
+    return rho * EDGE_GATEWAY_RPI4.cpu_freq_hz / mean_cycles_per_task()
+
+
 def _sample_attack_prob(ciciot_events: Optional[list],
                         rng: random.Random) -> float:
     """Return a random attack_probability from the CICIoT pool, or 0.0."""
@@ -130,7 +124,7 @@ def _sample_attack_prob(ciciot_events: Optional[list],
 def _ci_for_distribution(tier: str, rng: random.Random) -> float:
     """Sample a CI score from the specified CI tier."""
     if tier == "all_high":
-        # Fix B: ICU scenario — all tasks arrive with CI uniformly in [0.8, 1.0]
+        # ICU scenario — all tasks arrive with CI uniformly in [0.8, 1.0]
         return round(rng.uniform(0.8, 1.0), 4)
     elif tier == "high":
         return round(rng.uniform(0.7, 1.0), 4)
@@ -145,7 +139,7 @@ def _task_from_mendeley(event: dict,
                         device_id: int,
                         timestamp: float,
                         attack_prob: float) -> SimulationTask:
-    """Convert a Mendeley event dict into a SimulationTask."""
+    """Convert a Kaggle IoMT event dict into a SimulationTask."""
     return SimulationTask(
         task_id             = task_id,
         device_id           = device_id,
@@ -171,16 +165,17 @@ def _task_from_mitbih(event: dict,
     # Scale CPU cycles from the event; data payload fixed for ECG.
     # Default updated to 150 M cycles to match realistic CNN inference on
     # a Cortex-M / ESP32-class wearable (see TASK_PROFILES['ecg_analysis']).
-    cpu = int(event.get("cpu_cycles_ecg_inference", 150_000_000))
+    profile = TASK_PROFILES["ecg_analysis"]
+    cpu = int(event.get("cpu_cycles_ecg_inference", profile["cpu_cycles"]))
     return SimulationTask(
         task_id             = task_id,
         device_id           = device_id,
         timestamp           = timestamp,
         ci_score            = ci,
-        data_size_bits      = 40_000_000,   # 5 MB (full ECG window)
+        data_size_bits      = profile["data_size_bits"],
         cpu_cycles          = cpu,
-        max_delay_s         = 0.5,
-        privacy_sensitivity = 0.9,
+        max_delay_s         = profile["max_delay_s"],
+        privacy_sensitivity = profile["privacy_sensitivity"],
         source              = "mitbih",
         attack_probability  = attack_prob,
         task_type           = "ecg_analysis",
@@ -217,6 +212,9 @@ def generate_synthetic_tasks(
         n: int,
         ci_distribution: str = "mixed",
         seed: int = 42,
+        arrival_process: str = "poisson",
+        arrival_rate: Optional[float] = None,
+        arrival_seed: Optional[int] = None,
 ) -> List[SimulationTask]:
     """
     Generate n purely synthetic SimulationTask objects.
@@ -232,6 +230,13 @@ def generate_synthetic_tasks(
         'low'    → all low CI
     seed : int
         Random seed for reproducibility.
+    arrival_process : 'poisson' (default) | 'mmpp2'
+    arrival_rate : float, optional
+        Long-run arrival rate in tasks/s (default n / 300).
+    arrival_seed : int, optional
+        Seed of the separate MMPP-2 stream.  Task types, CI values and
+        devices are identical across arrival processes and rates for the
+        same seed: only the timestamps change.
 
     Returns
     -------
@@ -247,7 +252,7 @@ def generate_synthetic_tasks(
             k=n,
         )
     elif ci_distribution == "all_high":
-        # Fix B: ICU scenario — all tasks have CI in [0.8, 1.0]
+        # ICU scenario — all tasks have CI in [0.8, 1.0]
         tiers = ["all_high"] * n
     else:
         tiers = [ci_distribution] * n
@@ -259,9 +264,17 @@ def generate_synthetic_tasks(
         k=n,
     )
 
-    # Poisson timestamps
-    lam = n / 300.0
+    # Poisson timestamps (always drawn from rng, so the draws that follow are
+    # the same whatever the arrival process)
+    lam = n / 300.0 if arrival_rate is None else float(arrival_rate)
     timestamps = _poisson_timestamps(n, lam, rng)
+    if arrival_process == "mmpp2":
+        from src.config import MMPP2_RATE_MULTIPLIERS, MMPP2_SWITCH_PROBS
+        arng = random.Random(seed + 1 if arrival_seed is None else arrival_seed)
+        timestamps = _mmpp2_timestamps(n, lam, arng, MMPP2_RATE_MULTIPLIERS,
+                                       MMPP2_SWITCH_PROBS)
+    elif arrival_process != "poisson":
+        raise ValueError(f"unknown arrival_process {arrival_process!r}")
 
     tasks = []
     for i in range(n):
@@ -297,7 +310,7 @@ def generate_event_stream(
         seed:           int = 42,
 ) -> List[SimulationTask]:
     """
-    Blend real events from Mendeley / MIT-BIH with synthetic tasks to reach
+    Blend real events from Kaggle IoMT / MIT-BIH with synthetic tasks to reach
     n_tasks, assign Poisson arrival timestamps, and attach attack
     probabilities sampled from CICIoMT.
 
@@ -348,7 +361,7 @@ def generate_event_stream(
     print(f"[EventGen] Will use real   : {n_real}")
     print(f"[EventGen] Will synthesise : {n_synthetic}")
 
-    # --- Decide split between Mendeley and MIT-BIH ---
+    # --- Decide split between Kaggle IoMT and MIT-BIH ---
     if mendeley_pool and mitbih_pool:
         n_mendeley = int(n_real * len(mendeley_pool) /
                          (len(mendeley_pool) + len(mitbih_pool)))
@@ -360,7 +373,7 @@ def generate_event_stream(
         n_mendeley = 0
         n_mitbih   = n_real
 
-    # --- Mendeley tasks ---
+    # --- Kaggle IoMT tasks ---
     for i in range(n_mendeley):
         ev  = mendeley_pool[i % len(mendeley_pool)]
         ts  = timestamps[task_id]

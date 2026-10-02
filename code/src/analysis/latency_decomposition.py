@@ -1,20 +1,18 @@
 """
-latency_decomposition.py — Fix F (Fix2.md): latency component breakdown.
+latency_decomposition.py — latency component breakdown.
 
-Decomposes mean end-to-end latency at N=1000 for DQN-ES and PSO into
-three components:
+Decomposes mean end-to-end latency at N=1000 for config.ROBUSTNESS_ARMS
+(DQN-ES, ES-only, Random-K[K=3], q-mixed[q=0.5], Static-Tier) into
   (1) transmission latency  t_tx   = D_i / R_{i,j}
-  (2) queuing delay         t_queue (M/M/1 sojourn)
+  (2) queuing delay         t_queue (FIFO wait)
   (3) compute at destination t_proc = C_i / f_j
-
-Clarifies whether DQN-ES's latency penalty over PSO comes from routing to
-a slower node (compute component) or a more distant node (transmission).
+  (4) propagation and (5) result download
 
 Outputs
 -------
 results/latency_decomposition.csv
   columns: algorithm, N, mean_tx_ms, mean_queue_ms, mean_compute_ms,
-           mean_prop_ms, mean_total_ms
+           mean_prop_ms, mean_downlink_ms, mean_total_ms
 """
 
 from __future__ import annotations
@@ -40,53 +38,25 @@ from src.config import (
     N_FOG_NODES,
     N_WEARABLES,
     PRIMARY_SCALE,
+    ROBUSTNESS_ARMS,
 )
-from src.core.task import HealthcareTask
-from src.data_ingestion.event_generator import generate_synthetic_tasks
-from src.simulation.environment import OffloadingEnvironment
-from src.simulation.topology import build_healthcare_topology
+from src.simulation.replicate import build_synthetic_replicate, run_scheduler
 
-# Algorithms for decomposition (the two main comparators per Fix F spec)
-DECOMP_ALGORITHMS = ['DQN-ES', 'PSO', 'PSO']
+# Algorithms for decomposition: the robustness arms
+DECOMP_ALGORITHMS = list(ROBUSTNESS_ARMS)
 
 
 def _run_cell(payload: tuple) -> tuple:
     """payload = (alg_name, run_id, n_tasks)"""
-    import random as _r
     alg_name, run_id, n_tasks = payload
-    seed = GLOBAL_SEED + run_id * 1000 + n_tasks
-    _r.seed(seed)
-    np.random.seed(seed)
 
-    from src.config import get_full_algorithm_registry
-    registry = get_full_algorithm_registry()
+    from src.config import get_experiment_registry, get_full_algorithm_registry
+    registry = {**get_full_algorithm_registry(), **get_experiment_registry()}
     if alg_name not in registry:
         return alg_name, run_id, None
 
-    topo = build_healthcare_topology(
-        n_wearables=N_WEARABLES, n_fog_nodes=N_FOG_NODES, seed=seed,
-    )
-    sched = registry[alg_name](topo)
-    raws = generate_synthetic_tasks(n_tasks, 'mixed', seed=seed)
-    wids = [nid for nid, n in topo.nodes.items() if n.node_type == 'wearable']
-    tasks = [
-        HealthcareTask(
-            task_id=t.task_id,
-            device_id=wids[t.device_id % len(wids)],
-            timestamp=t.timestamp,
-            data_size_bits=t.data_size_bits,
-            cpu_cycles=t.cpu_cycles,
-            max_delay_s=t.max_delay_s,
-            privacy_sensitivity=t.privacy_sensitivity,
-            ci_score=t.ci_score,
-            attack_probability=t.attack_probability,
-            source=t.source,
-        )
-        for t in raws
-    ]
-
-    env = OffloadingEnvironment(topo, sched, n_tasks=n_tasks, seed=seed)
-    results = env.run(tasks)
+    seeds, topo, tasks = build_synthetic_replicate(run_id, n_tasks, 'mixed')
+    results, _ = run_scheduler(registry[alg_name], topo, tasks, seeds)
     if not results:
         return alg_name, run_id, None
 
@@ -95,6 +65,7 @@ def _run_cell(payload: tuple) -> tuple:
         'mean_queue_ms':   mean(r['latency_queue_ms']    for r in results),
         'mean_compute_ms': mean(r['latency_compute_ms']  for r in results),
         'mean_prop_ms':    mean(r['latency_prop_ms']     for r in results),
+        'mean_downlink_ms': mean(r['latency_downlink_ms'] for r in results),
         'mean_total_ms':   mean(r['latency_ms']          for r in results),
     }
     return alg_name, run_id, metrics
@@ -132,7 +103,7 @@ def run_decomposition(
             print(f'  {alg} run={rid}  wall={time.time()-t0:.1f}s', flush=True)
 
     comp_keys = ['mean_tx_ms', 'mean_queue_ms', 'mean_compute_ms',
-                 'mean_prop_ms', 'mean_total_ms']
+                 'mean_prop_ms', 'mean_downlink_ms', 'mean_total_ms']
     summary = {}
     csv_rows = []
     for alg in DECOMP_ALGORITHMS:

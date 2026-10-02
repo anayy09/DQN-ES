@@ -1,10 +1,10 @@
 """
-weight_ablation.py — Fix 6 + Fix B: CI weight function ablation.
+weight_ablation.py — CI weight function ablation.
 
 Compares four CI-to-weight schemes (flat, step, linear, proposed
 non-linear) for DQN-ES at the primary scale, 30 Monte Carlo trials each.
 
-Fix B: also runs all-high-CI ICU scenario (Phi in [0.8, 1.0]) to test
+Also runs the all-high-CI ICU scenario (Phi in [0.8, 1.0]) to test
 whether the non-linear scheme separates from alternatives under maximum
 criticality load.  Wilcoxon rank-sum tests (Bonferroni-corrected) between
 non-linear and each other scheme are applied in both scenarios.
@@ -13,7 +13,7 @@ Outputs (mixed-CI workload):
   results/table5_weight_ablation.csv
   results/weight_ablation_raw.json
 
-Outputs (all-high-CI workload, Fix B):
+Outputs (all-high-CI workload):
   results/table6_highci_weights.csv
   results/weight_ablation_highci_raw.json
 """
@@ -30,7 +30,6 @@ from pathlib import Path
 from statistics import mean
 
 import numpy as np
-from scipy import stats as scipy_stats
 
 _CODE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
@@ -47,9 +46,7 @@ from src.config import (
 )
 from src.core.cost_function import get_weight_mode, set_weight_mode
 from src.core.task import HealthcareTask
-from src.data_ingestion.event_generator import generate_synthetic_tasks
-from src.simulation.environment import OffloadingEnvironment
-from src.simulation.topology import build_healthcare_topology
+from src.simulation.replicate import build_synthetic_replicate, run_scheduler
 
 try:
     from tqdm import tqdm
@@ -61,73 +58,25 @@ except ImportError:
 WEIGHT_MODES = ['flat', 'step', 'linear', 'nonlinear']
 
 
-def _to_healthcare(t, topo):
-    wids = [nid for nid, n in topo.nodes.items() if n.node_type == 'wearable']
-    dev = wids[t.device_id % len(wids)]
-    return HealthcareTask(
-        task_id=t.task_id, device_id=dev, timestamp=t.timestamp,
-        data_size_bits=t.data_size_bits, cpu_cycles=t.cpu_cycles,
-        max_delay_s=t.max_delay_s, privacy_sensitivity=t.privacy_sensitivity,
-        ci_score=t.ci_score, attack_probability=t.attack_probability,
-        source=t.source,
-    )
-
-
 def _run_once(payload):
-    n_tasks, run_id, topo, ci_distribution, mode = payload
+    n_tasks, run_id, ci_distribution, mode = payload
     set_weight_mode(mode)
-
-    import random as _r
-    seed = GLOBAL_SEED + run_id * 1000 + n_tasks
-    _r.seed(seed)
-    np.random.seed(seed)
-    raws = generate_synthetic_tasks(n_tasks, ci_distribution, seed=seed)
-    tasks = [_to_healthcare(t, topo) for t in raws]
-    sched = DQNESScheduler(topo, seed=seed)
-    env = OffloadingEnvironment(topo, sched, n_tasks=n_tasks, seed=seed)
-    res = env.run(tasks)
+    try:
+        seeds, topo, tasks = build_synthetic_replicate(run_id, n_tasks,
+                                                       ci_distribution)
+        res, _ = run_scheduler(DQNESScheduler, topo, tasks, seeds)
+    finally:
+        set_weight_mode('nonlinear')
     if not res:
         return None
     return {
+        'run_id':            run_id,
         'avg_latency_ms':    mean(r['latency_ms']    for r in res),
         'avg_energy_mj':     mean(r['energy_mj']     for r in res),
         'avg_privacy_risk':  mean(r['privacy_risk']  for r in res),
         'sla_violation_pct': 100.0 * sum(r['sla_violated']
                                          for r in res) / len(res),
     }
-
-
-def _wilcoxon_vs_nonlinear(summary: dict) -> dict:
-    """
-    Fix B: Wilcoxon rank-sum tests between non-linear and each other scheme.
-    Bonferroni correction: 3 schemes × 4 metrics = 12 tests.
-    Returns dict[metric][scheme] = {p_raw, p_corrected}.
-    """
-    comparators = ['flat', 'step', 'linear']
-    metric_keys = ['avg_latency_ms', 'avg_energy_mj',
-                   'avg_privacy_risk', 'sla_violation_pct']
-    n_tests = len(comparators) * len(metric_keys)   # 12
-    alpha = 0.05
-
-    if 'nonlinear' not in summary:
-        return {}
-    nl_samples = {k: np.array(summary['nonlinear'][k]['samples'], dtype=float)
-                  for k in metric_keys}
-
-    results = {}
-    for metric in metric_keys:
-        results[metric] = {}
-        for scheme in comparators:
-            if scheme not in summary:
-                continue
-            s2 = np.array(summary[scheme][metric]['samples'], dtype=float)
-            try:
-                _, p_raw = scipy_stats.ranksums(nl_samples[metric], s2)
-            except Exception:
-                p_raw = float('nan')
-            p_corr = min(float(p_raw) * n_tests, 1.0) if not np.isnan(p_raw) else float('nan')
-            results[metric][scheme] = {'p_raw': float(p_raw), 'p_corrected': float(p_corr)}
-    return results
 
 
 def run_ablation(
@@ -143,18 +92,15 @@ def run_ablation(
     Parameters
     ----------
     ci_distribution : str
-        'mixed' for standard workload; 'all_high' for Fix B ICU scenario.
+        'mixed' for standard workload; 'all_high' for the ICU scenario.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    topo = build_healthcare_topology(
-        n_wearables=N_WEARABLES, n_fog_nodes=N_FOG_NODES, seed=GLOBAL_SEED,
-    )
     label = 'HIGHCI' if ci_distribution == 'all_high' else 'MIXED'
     print(f'[WEIGHT-AB] ci_distribution={ci_distribution} ({label})')
 
     raw: dict = defaultdict(list)
     import concurrent.futures
-    payloads = [(n_tasks, run_id, topo, ci_distribution, mode) for mode in WEIGHT_MODES for run_id in range(n_runs)]
+    payloads = [(n_tasks, run_id, ci_distribution, mode) for mode in WEIGHT_MODES for run_id in range(n_runs)]
     
     if workers is None:
         workers = max(1, (os.cpu_count() or 2) - 1)
@@ -169,7 +115,7 @@ def run_ablation(
             
     for payload, m in zip(payloads, results):
         if m is not None:
-            raw[payload[4]].append(m)
+            raw[payload[3]].append(m)
     set_weight_mode('nonlinear')
 
     # Aggregate
@@ -183,29 +129,35 @@ def run_ablation(
                   'avg_privacy_risk', 'sla_violation_pct']:
             vs = np.array([r[k] for r in runs], dtype=float)
             agg[k] = {'mean': float(vs.mean()), 'std': float(vs.std()),
-                      'samples': vs.tolist()}
+                      'samples': vs.tolist(),
+                      'run_ids': [int(r['run_id']) for r in runs]}
             row[f'{k}_mean'] = float(vs.mean())
             row[f'{k}_std']  = float(vs.std())
         summary[mode] = agg
         csv_rows.append(row)
 
-    # Wilcoxon tests between non-linear and other schemes
-    wilcoxon_results = _wilcoxon_vs_nonlinear(summary)
-    if wilcoxon_results:
-        print('\n[WEIGHT-AB] Wilcoxon tests (non-linear vs. others), '
-              'Bonferroni-corrected (12 tests):')
-        for metric, comps in wilcoxon_results.items():
-            for scheme, r in comps.items():
-                sig = '*' if r['p_corrected'] < 0.05 else ' '
-                print(f'  {metric} vs {scheme}: p_corr={r["p_corrected"]:.4e}{sig}')
-        # Append Wilcoxon results to csv_rows
-        for mode in WEIGHT_MODES:
-            for row in csv_rows:
-                if row['weight_mode'] == mode:
-                    for metric, comps in wilcoxon_results.items():
-                        if mode in comps:
-                            row[f'{metric}_p_corr_vs_nonlinear'] = \
-                                comps[mode].get('p_corrected', float('nan'))
+    # Paired signed-rank tests, non-linear vs each other scheme (declared
+    # family 'weight_ablation' in src.config.STAT_FAMILIES; Holm over 12).
+    # Imported here so spawned workers do not import scipy via eval_stats
+    from src.analysis.statistical_tests import run_family_tests
+    tests = run_family_tests(summary, 'weight_ablation')
+    print('\n[WEIGHT-AB] Paired signed-rank tests (d = nonlinear - scheme), '
+          f'Holm over {len(tests)} tests:')
+    for t in tests:
+        if t['status'] != 'tested':
+            print(f"  {t['metric']} vs {t['comparator']}: {t['status']}")
+            continue
+        sig = '*' if t['reject_holm'] else ' '
+        print(f"  {t['metric']} vs {t['comparator']}: d={t['hl_diff']:+.4f} "
+              f"[{t['ci_lo']:+.4f}, {t['ci_hi']:+.4f}] p_holm={t['p_holm']:.4e}{sig}")
+    for row in csv_rows:
+        for t in tests:
+            if t['comparator'] == row['weight_mode'] and t['status'] == 'tested':
+                m = t['metric']
+                row[f'{m}_hl_diff_nonlinear_minus'] = t['hl_diff']
+                row[f'{m}_ci_lo'] = t['ci_lo']
+                row[f'{m}_ci_hi'] = t['ci_hi']
+                row[f'{m}_p_holm_vs_nonlinear'] = t['p_holm']
 
     # Determine output file names based on ci_distribution
     if ci_distribution == 'all_high':
@@ -217,7 +169,8 @@ def run_ablation(
 
     if csv_rows:
         with open(out_dir / csv_name, 'w', newline='', encoding='utf-8') as fh:
-            wr = csv.DictWriter(fh, fieldnames=list(csv_rows[0].keys()))
+            fields = list(dict.fromkeys(k for r in csv_rows for k in r))
+            wr = csv.DictWriter(fh, fieldnames=fields, restval='')
             wr.writeheader()
             wr.writerows(csv_rows)
     with open(out_dir / json_name, 'w', encoding='utf-8') as fh:

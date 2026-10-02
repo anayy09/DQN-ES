@@ -3,7 +3,7 @@ run_weight_ablation.py — Standalone weight-scheme ablation runner.
 
 Usage:
     python run_weight_ablation.py               # mixed-CI workload (default)
-    python run_weight_ablation.py --ci all_high # all-high-CI ICU scenario (Fix B)
+    python run_weight_ablation.py --ci all_high # all-high-CI ICU scenario
 
 Outputs go to results/:
     mixed:    table5_weight_ablation.csv, weight_ablation_raw.json

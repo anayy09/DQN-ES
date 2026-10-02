@@ -10,7 +10,8 @@ where weights are CI-adaptive (Criticality Index Φ ∈ [0,1]):
   w_P(Φ) = (1-Φ)^γ_P                              — privacy relaxed in emergencies
 
 Energy model: CMOS dynamic power  E = κ · C · f²
-Latency model: L = t_tx + t_prop + t_queue + t_proc
+Latency model: L = t_tx + t_prop + t_queue + t_proc + t_dl
+  (t_dl = return propagation + result download; see core/offload_model.py)
 Privacy risk: R_P = ρ · (1 - H(u_i) / H_max)
 """
 
@@ -69,7 +70,7 @@ def compute_normalized_weights(ci: float) -> Tuple[float, float, float]:
 
     Dispatches to the currently active weight mode (default: 'nonlinear',
     the paper's proposed CI-adaptive non-linear scheme).  Mode can be
-    overridden globally via `set_weight_mode()` for Fix 6 (ablation).
+    overridden globally via `set_weight_mode()` for the weight ablation.
     """
     ci = float(max(0.0, min(1.0, ci)))
     mode = WEIGHT_MODE
@@ -96,7 +97,7 @@ def compute_normalized_weights(ci: float) -> Tuple[float, float, float]:
 
 
 # ---------------------------------------------------------------------------
-# Weight-mode switch  (Fix 6: ablation of CI-adaptive weight design)
+# Weight-mode switch  (ablation of CI-adaptive weight design)
 # ---------------------------------------------------------------------------
 WEIGHT_MODE: str = 'nonlinear'   # 'flat' | 'step' | 'linear' | 'nonlinear'
 
@@ -208,27 +209,51 @@ def compute_local_energy(
     return kappa * cpu_cycles * (cpu_freq_hz ** 2)
 
 
+def compute_local_energy_draw(
+    cpu_cycles: int,
+    cpu_freq_hz: float,
+    active_power_w: float,
+) -> float:
+    """
+    Battery energy of local execution from a measured supply draw:
+      E_local = P_active * C_i / f
+
+    The wearable uses this with the ESP32-S3 datasheet current
+    (config.WEARABLE_COMPUTE_DRAW_W); the CMOS kappa model above is kept only
+    for profiles without a datasheet draw.
+    """
+    if cpu_freq_hz <= 0:
+        return float('inf')
+    return active_power_w * cpu_cycles / cpu_freq_hz
+
+
 def compute_offload_energy(
     data_size_bits: int,
     uplink_rate_bps: float,
     total_latency_s: float,
     tx_power_w: float,
     idle_power_w: float,
+    rx_time_s: float = 0.0,
+    rx_power_w: float = 0.0,
 ) -> float:
     """
     Wearable energy during offloading:
-      E_off = P_tx · t_tx + P_idle · (L_off - t_tx)
+      E_off = P_tx · t_tx + P_rx · t_rx + P_idle · (L_off - t_tx - t_rx)
 
-    The wearable transmits data at full TX power, then stays in idle/
-    listening mode until the result is received.
+    The wearable transmits the payload at TX power, waits in idle/listening
+    mode, and receives the result at RX power (t_rx = result download time;
+    0 reproduces the earlier model without result return).
 
     Parameters
     ----------
     data_size_bits  : int   — D_i in bits
     uplink_rate_bps : float — R in bits/s
     total_latency_s : float — L_off (end-to-end)
-    tx_power_w      : float — P_tx (wearable transmission power)
+    tx_power_w      : float — P_tx (wearable battery draw while transmitting;
+                              not the radiated power of the rate equation)
     idle_power_w    : float — P_idle (wearable during waiting)
+    rx_time_s       : float — t_rx, time spent receiving the result
+    rx_power_w      : float — P_rx (wearable receive power)
 
     Returns
     -------
@@ -238,8 +263,9 @@ def compute_offload_energy(
         return float('inf')
 
     t_tx = min(data_size_bits / uplink_rate_bps, total_latency_s)
-    t_idle = max(0.0, total_latency_s - t_tx)
-    return tx_power_w * t_tx + idle_power_w * t_idle
+    t_rx = min(max(0.0, rx_time_s), max(0.0, total_latency_s - t_tx))
+    t_idle = max(0.0, total_latency_s - t_tx - t_rx)
+    return tx_power_w * t_tx + rx_power_w * t_rx + idle_power_w * t_idle
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +341,7 @@ def compute_cost(
     ci: float,
     latency_bounds: Tuple[float, float],
     energy_bounds: Tuple[float, float],
+    privacy_scale: float = 1.0,
 ) -> float:
     """
     Full normalised multi-objective cost:
@@ -331,12 +358,20 @@ def compute_cost(
     ci              : float — Criticality Index Φ ∈ [0, 1]
     latency_bounds  : (l_min, l_max) in seconds
     energy_bounds   : (e_min, e_max) in joules
+    privacy_scale   : float — lambda_P; the privacy weight is multiplied by
+                      lambda_P and the three weights renormalised to sum 1
+                      (reweighted-greedy frontier).  1 = default.
 
     Returns
     -------
     Scalar cost F(x) ∈ [0, 1] (approximately).
     """
     we, wl, wp = compute_normalized_weights(ci)
+    if privacy_scale != 1.0:
+        wp = wp * privacy_scale
+        total = we + wl + wp
+        if total > 1e-12:
+            we, wl, wp = we / total, wl / total, wp / total
 
     l_min, l_max = latency_bounds
     e_min, e_max = energy_bounds

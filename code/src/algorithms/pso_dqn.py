@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from src.algorithms.dqn_es import DQNESScheduler
+from src.config import DQN_TOP_K
 from src.core.task import HealthcareTask
 
 
@@ -43,7 +44,7 @@ class PSODQNScheduler(DQNESScheduler):
     def __init__(
         self,
         topology,
-        n_candidate_nodes: int = 3,
+        n_candidate_nodes: int = DQN_TOP_K,
         epsilon: float = 1.0,
         epsilon_decay: float = 0.995,
         epsilon_min: float = 0.05,

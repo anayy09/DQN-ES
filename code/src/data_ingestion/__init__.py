@@ -7,7 +7,7 @@ Offloading simulation.
 Exposed names
 -------------
 SimulationTask          – dataclass representing one simulation task
-load_mendeley_events    – parse/cache Mendeley IoMT XLSX
+load_mendeley_events    – parse/cache Kaggle IoMT XLSX
 load_mitbih_events      – parse/cache MIT-BIH Arrhythmia WFDB records
 load_ciciot_events      – parse/cache CICIoMT2024 CSV attack flows
 load_medsec_events      – parse/cache MedSec-25 CSV attack flows

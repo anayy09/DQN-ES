@@ -2,8 +2,12 @@
 xai_ci_module.py
 ----------------
 Trains a Random Forest regressor mapping physiological vitals → CI score
-using the Mendeley dataset. Applies SHAP TreeExplainer to generate
-feature importance visualizations for clinical interpretability.
+on the Kaggle IoMT vital-signs dataset (Barman 2024,
+doi:10.34740/KAGGLE/DSV/7736523; stored under data/Mendeley-IoMT/ for
+historical reasons). Applies SHAP TreeExplainer for feature importance.
+The CI target is threshold-derived from the dataset's alert columns
+(_build_ci_target); the JSON records that construction, the split, the RF
+parameters, the package versions and the input file's sha256.
 
 Outputs:
   results/shap_feature_importance.json
@@ -216,6 +220,26 @@ def _build_ci_target(df: pd.DataFrame) -> np.ndarray:
 # SHAP / fallback importance
 # ---------------------------------------------------------------------------
 
+def _sha256(path: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, 'rb') as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _versions() -> Dict[str, str]:
+    from importlib import metadata
+    out = {}
+    for pkg in ('shap', 'scikit-learn', 'numpy', 'pandas', 'openpyxl'):
+        try:
+            out[pkg] = metadata.version(pkg)
+        except metadata.PackageNotFoundError:
+            out[pkg] = 'not installed'
+    return out
+
+
 def _try_import_shap():
     try:
         import shap
@@ -427,7 +451,7 @@ def _fig_ci_distribution(ci_values: np.ndarray, figures_dir: Path):
 
 def run_xai_analysis(data_dir: str, results_dir: str, figures_dir: str) -> Dict:
     """
-    Train a SHAP-explainable CI predictor on the Mendeley IoMT dataset.
+    Train a SHAP-explainable CI predictor on the Kaggle IoMT dataset.
 
     Parameters
     ----------
@@ -448,7 +472,7 @@ def run_xai_analysis(data_dir: str, results_dir: str, figures_dir: str) -> Dict:
     figures_path.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
-    # 1. Load Mendeley XLSX directly
+    # 1. Load the Kaggle IoMT XLSX directly
     # ------------------------------------------------------------------
     xlsx_candidates = [
         data_path / 'Mendeley-IoMT' / 'patients_data_with_alerts.xlsx',
@@ -573,6 +597,36 @@ def run_xai_analysis(data_dir: str, results_dir: str, figures_dir: str) -> Dict:
             name: float(val)
             for name, val in zip(clean_names, rf.feature_importances_)
         },
+        'dataset': {
+            'citation': 'Barman, IoMT Dataset for ML-Based Health Monitoring, '
+                        'Kaggle 2024, doi:10.34740/KAGGLE/DSV/7736523',
+            'file': xlsx_path.name,
+            'sha256': _sha256(xlsx_path),
+            'n_rows': int(df.shape[0]),
+            'feature_columns': dict(zip(clean_names, actual_cols)),
+        },
+        'label_construction': {
+            'formula': 'CI = clip(max_j alert_score(alert column j) + '
+                       'disease_boost(disease column), 0, 1)',
+            'alert_columns': list(ALERT_COL_KEYWORDS.values()),
+            'alert_score_map': ALERT_SCORE_MAP,
+            'alert_score_default': 0.10,
+            'disease_columns_searched': ['Predicted Disease', 'Disease', 'Diagnosis'],
+            'disease_boost_map': DISEASE_BOOST_MAP,
+            'note': 'the target is derived from the dataset threshold alerts, '
+                    'not from clinical outcomes',
+            'ci_target_summary': {
+                'min': float(ci_full.min()), 'max': float(ci_full.max()),
+                'mean': float(ci_full.mean()),
+                'frac_low_lt_0.3': float((ci_full < 0.3).mean()),
+                'frac_high_ge_0.7': float((ci_full >= 0.7).mean()),
+            },
+        },
+        'model': {'estimator': 'RandomForestRegressor', 'n_estimators': 100,
+                  'max_depth': 8, 'random_state': 42,
+                  'split': 'train_test_split(test_size=0.20, random_state=42)'},
+        'shap_explainer': 'TreeExplainer on the test split' if shap_available else None,
+        'versions': _versions(),
     }
     fi_path = results_path / 'shap_feature_importance.json'
     with open(fi_path, 'w', encoding='utf-8') as fh:

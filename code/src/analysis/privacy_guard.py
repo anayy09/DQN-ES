@@ -1,5 +1,5 @@
 """
-privacy_guard.py — Fix C1 + Fix 8: traffic-analysis attack detector validation.
+privacy_guard.py — traffic-analysis attack detector validation.
 
 Detection mechanism (explicit, reproducible):
   - A flow is FLAGGED as a candidate traffic-analysis attack whenever the
@@ -13,7 +13,7 @@ Detection mechanism (explicit, reproducible):
     'benign' and whose severity_from_label() ≥ 0.55 is treated as a
     positive (attack) example; the remainder are negatives.
 
-  - FIX C1: The per-flow entropy ratio is derived from real MedSec-25
+  - The per-flow entropy ratio is derived from real MedSec-25
     features (attack_probability, computed in parse_medsec.py from actual
     flow bytes and duration), replacing the previous synthetic Beta
     distribution model.
@@ -82,7 +82,7 @@ def _entropy_ratio_from_flow(is_attack: bool, severity: float,
     """
     Derive the entropy ratio for a flow from its real MedSec-25 features.
 
-    FIX C1: replaces the previous synthetic Beta distribution model.
+    Replaces the previous synthetic Beta distribution model.
     The entropy ratio is now computed deterministically from the
     attack_probability field (derived from actual flow bytes and duration
     in parse_medsec.py), making the Privacy Guard evaluation grounded
@@ -116,7 +116,7 @@ def run_validation(data_dir: Path, out_dir: Path,
     events = load_medsec_events(str(data_dir))
     print(f'[PG] Loaded {len(events)} flow events.')
 
-    # Build labelled vector — FIX C1: use real flow features, not synthetic Beta
+    # Build labelled vector — use real flow features, not synthetic Beta
     y_true   = np.zeros(len(events), dtype=int)
     h_ratios = np.zeros(len(events), dtype=float)
     for i, ev in enumerate(events):
@@ -171,7 +171,7 @@ def run_validation(data_dir: Path, out_dir: Path,
     tpr_curve = np.array(tpr_curve)
     fpr_curve = np.array(fpr_curve)
 
-    # AUC: prefer sklearn.metrics.roc_auc_score (Fix D: exact computation).
+    # AUC: prefer sklearn.metrics.roc_auc_score (exact computation).
     # Falls back to trapezoidal rule on the 101-point sweep if sklearn is absent.
     order = np.argsort(fpr_curve)
     if _HAS_SKLEARN:
@@ -189,7 +189,7 @@ def run_validation(data_dir: Path, out_dir: Path,
             auc = float(_trapz(tpr_curve[order], fpr_curve[order]))
         print(f'   [AUC method: trapezoidal rule on 101-point sweep]')
     metrics['AUC'] = auc
-    # Fix D: save full ROC curve so figures_q1.py uses the same data, not Beta model
+    # Save full ROC curve so figures_q1.py uses the same data, not Beta model
     metrics['roc_fpr'] = fpr_curve[order].tolist()
     metrics['roc_tpr'] = tpr_curve[order].tolist()
     print(f'   {"AUC":<14s}: {auc:.4f}')

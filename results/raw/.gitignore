@@ -1,0 +1,4 @@
+# Per-run raw logs (gzip CSV, ~40 KB per 1000-task run) are written here by
+# the drivers; too large for git. Archive them with the release instead.
+*
+!.gitignore

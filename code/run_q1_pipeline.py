@@ -1,24 +1,39 @@
 """
-run_q1_pipeline.py — Q1 elevation orchestrator (Fix.md + Fix2.md).
+run_q1_pipeline.py — orchestrator for every experiment step.
 
-Fix.md steps (already implemented):
-  Step 1  Full Monte Carlo 30 runs, 5 scales (Fixes 1, 2, 3, 5, 7)
-  Step 2  Bonferroni-corrected pairwise tests (Fix 4)
-  Step 3  CI weight ablation — mixed-CI workload (Fix 6)
-  Step 4  Privacy Guard validation on MedSec-25 (Fix 8)
-  Step 5  MIT-BIH real-trace evaluation (Fix 10)
-  Step 6  Figures
+Each step is declared up front (driver, arms, scales, replicates, condition,
+output directory) and the whole list is written to
+<results>/manifests/declared_arms.json before anything runs.  Each step then
+runs inside a manifest (src/analysis/manifest.py: commit, config hash, CLI,
+seeds, host, start/end time).  The run ends with `verify`, which checks
+every declared step against its manifest and summary.
 
-Fix2.md steps (new):
-  Step 7  PSO+DQN is included in the Monte Carlo registry (Fix A) — automatic
-  Step 8  All-high-CI weight ablation ICU scenario (Fix B)
-  Step 9  Scheduling overhead / wall-clock timing (Fix C)
-  Step 10 Privacy Guard re-run with sklearn AUC (Fix D) — same as Step 4
-  Step 11 Latency decomposition tx/queue/compute (Fix F)
-  Step 12 DQN-only routing distribution (Fix G)
-  Step 13 Framing note (Fix A result assessment)
+Steps (skip flags in brackets):
+  mc_main              main registry, all scales                     [--skip-mc]
+  mc_experiments       decomposition arms at the primary scale       [--skip-experiments]
+  mc_experiments_long  DQN-ES, ES-only, q-mixed curve at N=5000      [--skip-experiments]
+  stats                paired tests: main + decomposition families   [--skip-stats]
+  payload_10kb         10 KB ECG payload sensitivity, main registry  [--skip-sensitivity]
+  result_size_*        result-size sweep 1/4/16/64 KB                [--skip-sensitivity]
+  scaling_M*           fog-node counts 8/16/32                       [--skip-scaling]
+  workload_*           load targets and MMPP-2                       [--skip-workload]
+  channel_*            Rayleigh fading + ARQ loss 0/1/5 %            [--skip-channel]
+  warm_start_*         warm start, N_pre 500/2000                    [--skip-warm]
+  ci_noise_*           CI Gaussian sigma and misclassification       [--skip-cinoise]
+  weight_mixed         weight-scheme ablation, mixed CI              [--skip-weight]
+  weight_highci        weight-scheme ablation, all-high CI           [--skip-highci]
+  mitbih               MIT-BIH trace, main + experiment arms         [--skip-mitbih]
+  privacy_guard        Privacy Guard on MedSec-25                    [--skip-privacy]
+  ci_module            CI Random Forest + SHAP (xai_ci_module)       [--skip-cimodule]
+  overhead             decision-time split (serial)                  [--skip-overhead]
+  decomposition        latency decomposition                         [--skip-decomp]
+  routing              DQN-only routing distribution                 [--skip-routing]
+  model_checks         closed-form component checks                  [--skip-checks]
+  figures              figures                                       [--skip-figures]
+  framing_note, verify (always)
 
-Steps can be skipped individually via --skip-* flags.
+--only NAME [NAME ...] runs just the steps whose name starts with one of
+the given prefixes.
 """
 
 from __future__ import annotations
@@ -34,200 +49,294 @@ if BASE not in sys.path:
     sys.path.insert(0, BASE)
 
 PROJECT_ROOT = Path(BASE).parent
-RESULTS_DIR  = PROJECT_ROOT / 'results'
-FIGURES_DIR  = PROJECT_ROOT / 'latex' / 'figures'
-DATA_DIR     = PROJECT_ROOT / 'data'
 
 
 def _header(msg):
     print('\n' + '=' * 72)
     print(f'  {msg}')
-    print('=' * 72)
+    print('=' * 72, flush=True)
+
+
+def build_steps(args, results_dir: Path, figures_dir: Path, data_dir: Path) -> list:
+    """Declare every step: a list of dicts with a `run` callable."""
+    from src.config import (
+        CI_MISCLASS_PROBS, CI_NOISE_SIGMAS, ECG_PAYLOAD_SENSITIVITY_BITS,
+        LOAD_RHO_TARGETS, PRIMARY_SCALE, Q_MIX_SWEEP, RESULT_SIZE_SENSITIVITY_BITS,
+        ROBUSTNESS_ARMS, SCALING_FOG_COUNTS, SCALING_TIMING_RUNS, TASK_SCALES,
+        WARM_START_SWEEP, get_experiment_registry, get_full_algorithm_registry,
+    )
+    from src.simulation.replicate import overrides_tag
+
+    main_arms = list(get_full_algorithm_registry())
+    exp_arms = list(get_experiment_registry())
+    primary = args.scales[0] if args.scales else PRIMARY_SCALE
+    long_n = args.scales[-1] if args.scales else 5000
+    all_scales = args.scales or TASK_SCALES
+    n, w = args.n_runs, args.workers
+    long_arms = ['DQN-ES', 'ES-only'] + [f'q-mixed[q={q:g}]' for q in Q_MIX_SWEEP]
+    rs_arms = ['DQN-ES', 'ES-only', 'Static-Tier']
+
+    def mc(name, skip, out, registry, arms, scales, cond=None, n_fog=None,
+           desc=''):
+        prefix = {'main': 'mc_full', 'experiments': 'mc_exp', 'all': 'mc_all'}[registry]
+
+        def run():
+            from src.analysis.run_full_experiments import run_full
+            kw = {} if n_fog is None else {'n_fog_nodes': n_fog}
+            run_full(scales, n, results_dir / out, workers=w,
+                     registry_name=registry,
+                     algorithms=None if registry == 'main' else arms,
+                     task_overrides=cond, **kw)
+        return {'name': name, 'skip': skip, 'driver': 'run_full_experiments',
+                'description': desc, 'registry': registry, 'arms': arms,
+                'scales': scales, 'n_runs': n, 'condition': cond or {},
+                'n_fog_nodes': n_fog or 3, 'out': str(out).replace('\\', '/'),
+                'summary': f'{str(out).replace(chr(92), "/")}/{prefix}_summary.json'.lstrip('./'),
+                'run': run}
+
+    steps = [
+        mc('mc_main', args.skip_mc, Path('.'), 'main', main_arms, all_scales,
+           desc='main comparison, all scales'),
+        mc('mc_experiments', args.skip_experiments, Path('experiments'),
+           'experiments', exp_arms, [primary], desc='E1-E3 decomposition arms'),
+        mc('mc_experiments_long', args.skip_experiments,
+           Path('experiments_n5000'), 'all', long_arms, [long_n],
+           desc='steady state visible: DQN-ES, ES-only, q-mixed curve'),
+    ]
+
+    def stats():
+        from src.analysis.statistical_tests import run_pairwise_tests
+        run_pairwise_tests(results_dir / 'mc_full_summary.json', results_dir,
+                           scale=primary, families=['main', 'decomposition'],
+                           extra_summaries=[results_dir / 'experiments' / 'mc_exp_summary.json'])
+        try:
+            from src.analysis.statistical_tests import run_matched_latency
+        except ImportError:
+            return
+        run_matched_latency(results_dir / 'mc_full_summary.json',
+                            [results_dir / 'experiments' / 'mc_exp_summary.json'],
+                            results_dir, scale=primary)
+    steps.append({'name': 'stats', 'skip': args.skip_stats,
+                  'driver': 'statistical_tests', 'scales': [primary],
+                  'families': ['main', 'decomposition', 'matched_latency'],
+                  'run': stats})
+
+    cond = {'ecg_payload_bits': ECG_PAYLOAD_SENSITIVITY_BITS}
+    steps.append(mc('payload_10kb', args.skip_sensitivity,
+                    Path('sensitivity') / overrides_tag(cond), 'main',
+                    main_arms, [primary], cond, desc='D15 10 KB ECG payload'))
+    for b in RESULT_SIZE_SENSITIVITY_BITS:
+        cond = {'result_size_bits': b}
+        steps.append(mc(f'result_size_{b // 8000}kb', args.skip_sensitivity,
+                        Path('sensitivity') / overrides_tag(cond), 'all',
+                        rs_arms, [primary], cond, desc='E9 result-size sweep'))
+    for m in SCALING_FOG_COUNTS:
+        if m == 3:
+            continue   # M = 3 is the main configuration (mc_main / mc_experiments)
+        steps.append(mc(f'scaling_M{m}', args.skip_scaling,
+                        Path('scaling') / f'M{m}', 'all', ROBUSTNESS_ARMS,
+                        [primary], n_fog=m, desc='E4 fog-node count'))
+    workload = ([{'load_rho': r} for r in LOAD_RHO_TARGETS]
+                + [{'arrival_process': 'mmpp2'}]
+                + [{'arrival_process': 'mmpp2', 'load_rho': r} for r in LOAD_RHO_TARGETS])
+    for cond in workload:
+        steps.append(mc(f'workload_{overrides_tag(cond)}', args.skip_workload,
+                        Path('sensitivity') / overrides_tag(cond), 'all',
+                        ROBUSTNESS_ARMS, [primary], cond, desc='E7 workload'))
+    for n_pre in WARM_START_SWEEP:
+        cond = {'warm_start_tasks': n_pre}
+        steps.append(mc(f'warm_start_{n_pre}', args.skip_warm,
+                        Path('sensitivity') / overrides_tag(cond), 'all',
+                        ROBUSTNESS_ARMS, sorted({100, primary}), cond,
+                        desc='E12 warm start'))
+    for cond in ([{'ci_noise_sigma': s} for s in CI_NOISE_SIGMAS]
+                 + [{'ci_misclass_prob': p} for p in CI_MISCLASS_PROBS]):
+        steps.append(mc(f'ci_noise_{overrides_tag(cond)}', args.skip_cinoise,
+                        Path('sensitivity') / overrides_tag(cond), 'all',
+                        ROBUSTNESS_ARMS, [primary], cond, desc='E14 CI noise'))
+
+    from src.config import PACKET_LOSS_SWEEP
+    # Rayleigh fading with ARQ loss p in {0} + PACKET_LOSS_SWEEP (0, 1, 5 %)
+    channel = ([{'fading': 'rayleigh'}]
+               + [{'fading': 'rayleigh', 'packet_loss': p} for p in PACKET_LOSS_SWEEP])
+    for cond in channel:
+        steps.append(mc(f'channel_{overrides_tag(cond)}', args.skip_channel,
+                        Path('sensitivity') / overrides_tag(cond), 'all',
+                        ROBUSTNESS_ARMS, [primary], cond,
+                        desc='E7b fading / ARQ (Tier 3)'))
+
+    def weight(ci):
+        def run():
+            from src.analysis.weight_ablation import run_ablation
+            run_ablation(primary, n, results_dir, ci_distribution=ci, workers=w)
+        return run
+    steps += [
+        {'name': 'weight_mixed', 'skip': args.skip_weight, 'driver': 'weight_ablation',
+         'arms': ['flat', 'step', 'linear', 'nonlinear'], 'scales': [primary],
+         'n_runs': n, 'summary': 'weight_ablation_raw.json', 'run': weight('mixed')},
+        {'name': 'weight_highci', 'skip': args.skip_highci, 'driver': 'weight_ablation',
+         'arms': ['flat', 'step', 'linear', 'nonlinear'], 'scales': [primary],
+         'n_runs': n, 'summary': 'weight_ablation_highci_raw.json',
+         'run': weight('all_high')},
+    ]
+
+    def mitbih():
+        from src.analysis.mitbih_trace_eval import run_mitbih_trace
+        run_mitbih_trace(data_dir, results_dir, n_runs=n, workers=w,
+                         max_tasks=args.mitbih_max_tasks,
+                         algorithms=main_arms + exp_arms)
+    steps.append({'name': 'mitbih', 'skip': args.skip_mitbih,
+                  'driver': 'mitbih_trace_eval', 'arms': main_arms + exp_arms,
+                  'n_runs': n, 'max_tasks': args.mitbih_max_tasks,
+                  'summary': 'mitbih_trace_raw.json', 'data': True, 'run': mitbih})
+
+    def privacy_guard():
+        from src.analysis.privacy_guard import run_validation
+        run_validation(data_dir, results_dir, figures_dir, workers=w)
+    steps.append({'name': 'privacy_guard', 'skip': args.skip_privacy,
+                  'driver': 'privacy_guard', 'run': privacy_guard})
+
+    def overhead():
+        from src.analysis.scheduling_overhead import run_overhead_analysis
+        run_overhead_analysis(results_dir, n_runs=min(SCALING_TIMING_RUNS, n),
+                              n_tasks=primary, workers=1)
+    steps.append({'name': 'overhead', 'skip': args.skip_overhead,
+                  'driver': 'scheduling_overhead', 'arms': ROBUSTNESS_ARMS,
+                  'fog_counts': SCALING_FOG_COUNTS, 'scales': [primary],
+                  'n_runs': min(SCALING_TIMING_RUNS, n), 'workers': 1,
+                  'run': overhead})
+
+    def ci_module():
+        from src.analysis.xai_ci_module import run_xai_analysis
+        run_xai_analysis(str(data_dir), str(results_dir), str(figures_dir))
+    steps.append({'name': 'ci_module', 'skip': args.skip_cimodule,
+                  'driver': 'xai_ci_module',
+                  'description': 'CI Random Forest R2, SHAP means, label construction',
+                  'summary_file': 'shap_feature_importance.json', 'run': ci_module})
+
+    def decomp():
+        from src.analysis.latency_decomposition import run_decomposition
+        run_decomposition(results_dir, n_runs=n, n_tasks=primary, workers=w)
+
+    def routing():
+        from src.analysis.dqn_routing_analysis import run_routing_analysis
+        run_routing_analysis(results_dir, n_runs=n, n_tasks=primary, workers=w)
+
+    def checks():
+        import subprocess
+        r = subprocess.run([sys.executable, str(Path(BASE) / 'run_model_checks.py'),
+                            '--results-dir', str(results_dir)])
+        if r.returncode:
+            raise RuntimeError('model checks failed')
+    steps += [
+        {'name': 'decomposition', 'skip': args.skip_decomp,
+         'driver': 'latency_decomposition', 'arms': ROBUSTNESS_ARMS,
+         'scales': [primary], 'n_runs': n,
+         'run': decomp},
+        {'name': 'routing', 'skip': args.skip_routing,
+         'driver': 'dqn_routing_analysis', 'scales': [primary], 'n_runs': n,
+         'run': routing},
+        {'name': 'model_checks', 'skip': args.skip_checks,
+         'driver': 'run_model_checks', 'run': checks},
+        {'name': 'figures', 'skip': args.skip_figures, 'driver': 'figures_q1',
+         'figures_dir': str(figures_dir),
+         'run': lambda: _figures(results_dir, figures_dir, primary)},
+    ]
+    if args.only:
+        for st in steps:
+            st['skip'] = st['skip'] or not any(st['name'].startswith(o)
+                                               for o in args.only)
+    return steps
+
+
+def _figures(results_dir: Path, figures_dir: Path, ref_scale: int) -> None:
+    from src.analysis.figures_q1 import (
+        _load_summary, fig_energy_sla_vs_scale, fig_epsilon_convergence,
+        fig_latency_vs_scale, fig_metric_bars, fig_mitbih_trace,
+        fig_pareto_energy_latency, fig_pareto_latency_privacy,
+        fig_privacy_guard_roc, fig_shap_summary, fig_weight_ablation,
+    )
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    mc_path = results_dir / 'mc_full_summary.json'
+    if mc_path.exists():
+        summary = _load_summary(mc_path)
+        scales = sorted(summary.keys())
+        ref = ref_scale if ref_scale in summary else scales[0]
+        fig_latency_vs_scale(summary, figures_dir, scales=scales)
+        fig_energy_sla_vs_scale(summary, figures_dir, scales=scales)
+        fig_metric_bars(summary, figures_dir, ref_scale=ref)
+        fig_pareto_energy_latency(summary, figures_dir, ref_scale=ref)
+        fig_pareto_latency_privacy(summary, figures_dir, ref_scale=ref)
+    else:
+        print(f'[SKIP] {mc_path} not found; MC figures skipped')
+    fig_epsilon_convergence(results_dir / 'epsilon_trajectory.json', figures_dir)
+    fig_weight_ablation(results_dir / 'weight_ablation_raw.json', figures_dir,
+                        highci_path=results_dir / 'weight_ablation_highci_raw.json')
+    fig_privacy_guard_roc(results_dir / 'privacy_guard_metrics.json', figures_dir)
+    fig_shap_summary(results_dir / 'shap_feature_importance.json', figures_dir)
+    fig_mitbih_trace(results_dir / 'mitbih_trace_raw.json', figures_dir)
 
 
 def main():
-    p = argparse.ArgumentParser(
-        description='DQN-ES Q1 elevation pipeline (Fix.md + Fix2.md).'
-    )
-    p.add_argument('--n_runs',       type=int, default=30)
-    p.add_argument('--scales',       type=int, nargs='+', default=None)
-    p.add_argument('--skip-mc',      action='store_true',
-                   help='Skip Monte Carlo (Step 1)')
-    p.add_argument('--skip-stats',   action='store_true',
-                   help='Skip pairwise statistical tests (Step 2)')
-    p.add_argument('--skip-weight',  action='store_true',
-                   help='Skip mixed-CI weight ablation (Step 3)')
-    p.add_argument('--skip-privacy', action='store_true',
-                   help='Skip Privacy Guard / AUC validation (Step 4)')
-    p.add_argument('--skip-mitbih',  action='store_true',
-                   help='Skip MIT-BIH real-trace evaluation (Step 5)')
-    p.add_argument('--skip-figures', action='store_true',
-                   help='Skip figure generation (Step 6)')
-    p.add_argument('--skip-highci',  action='store_true',
-                   help='Skip all-high-CI weight ablation (Step 8)')
-    p.add_argument('--skip-overhead', action='store_true',
-                   help='Skip scheduling overhead analysis (Step 9)')
-    p.add_argument('--skip-decomp',  action='store_true',
-                   help='Skip latency decomposition (Step 11)')
-    p.add_argument('--skip-routing', action='store_true',
-                   help='Skip DQN-only routing analysis (Step 12)')
-    p.add_argument('--workers',      type=int, default=None,
-                   help='Worker processes for parallel steps')
+    p = argparse.ArgumentParser(description='DQN-ES experiment pipeline.')
+    p.add_argument('--n_runs', type=int, default=30)
+    p.add_argument('--scales', type=int, nargs='+', default=None,
+                   help='Main-MC scales; the first is also the scale of every '
+                        'other step, the last the long-episode scale')
+    p.add_argument('--workers', type=int, default=None)
+    p.add_argument('--results-dir', type=str, default=str(PROJECT_ROOT / 'results'))
+    p.add_argument('--figures-dir', type=str,
+                   default=str(PROJECT_ROOT / 'latex' / 'figures'))
+    p.add_argument('--data-dir', type=str, default=str(PROJECT_ROOT / 'data'))
+    p.add_argument('--mitbih-max-tasks', type=int, default=None,
+                   help='Truncate the MIT-BIH trace (checks only)')
+    p.add_argument('--only', nargs='+', default=None,
+                   help='Run only steps whose name starts with these prefixes')
+    p.add_argument('--declare-only', action='store_true',
+                   help='Write declared_arms.json and exit')
+    for flag in ('mc', 'experiments', 'stats', 'sensitivity', 'scaling',
+                 'workload', 'channel', 'warm', 'cinoise', 'weight', 'highci', 'mitbih',
+                 'privacy', 'cimodule', 'overhead', 'decomp', 'routing', 'checks',
+                 'figures'):
+        p.add_argument(f'--skip-{flag}', action='store_true')
     args = p.parse_args()
 
+    from src.analysis.manifest import Manifest, declare, verify
+    results_dir = Path(args.results_dir)
+    figures_dir = Path(args.figures_dir)
+    data_dir = Path(args.data_dir)
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    steps = build_steps(args, results_dir, figures_dir, data_dir)
+    decl = declare(results_dir, [{k: v for k, v in s.items() if k != 'run'}
+                                 for s in steps if not s['skip']])
+    print(f'[PIPELINE] declared {sum(not s["skip"] for s in steps)} steps -> {decl}')
+    if args.declare_only:
+        return
+
     t0 = time.time()
+    for st in steps:
+        if st['skip']:
+            continue
+        _header(f"{st['name']}  ({st.get('description') or st['driver']})")
+        params = {k: v for k, v in st.items() if k not in ('run', 'skip')}
+        with Manifest(results_dir, st['name'], params, n_runs=st.get('n_runs'),
+                      scales=st.get('scales') or [],
+                      data_dir=data_dir if st.get('data') else None):
+            st['run']()
 
-    # ------------------------------------------------------------------
-    # Step 1: Monte Carlo (Fixes 1-3, 5, 7; Fix A: PSO+DQN auto-included)
-    # ------------------------------------------------------------------
-    if not args.skip_mc:
-        _header('Step 1 — Monte Carlo (all algorithms incl. PSO+DQN, 30 runs)')
-        from src.analysis.run_full_experiments import run_full
-        from src.config import TASK_SCALES
-        run_full(
-            task_scales=args.scales or TASK_SCALES,
-            n_runs=args.n_runs,
-            results_dir=RESULTS_DIR,
-            workers=args.workers,
-        )
-
-    # ------------------------------------------------------------------
-    # Step 2: Pairwise Wilcoxon + Bonferroni (Fix 4; Fix E: 24 comparisons)
-    # ------------------------------------------------------------------
-    if not args.skip_stats:
-        _header('Step 2 — Wilcoxon + Bonferroni (6 baselines × 4 metrics = 24)')
-        from src.analysis.statistical_tests import run_pairwise_tests
-        run_pairwise_tests(RESULTS_DIR / 'mc_full_summary.json', RESULTS_DIR, workers=args.workers)
-
-    # ------------------------------------------------------------------
-    # Step 3: Mixed-CI weight ablation (Fix 6)
-    # ------------------------------------------------------------------
-    if not args.skip_weight:
-        _header('Step 3 — CI weight ablation (mixed-CI workload, Fix 6)')
-        from src.analysis.weight_ablation import run_ablation
-        from src.config import PRIMARY_SCALE
-        run_ablation(PRIMARY_SCALE, args.n_runs, RESULTS_DIR, ci_distribution='mixed', workers=args.workers)
-
-    # ------------------------------------------------------------------
-    # Step 4: Privacy Guard AUC validation (Fix 8; Fix D: sklearn AUC)
-    # ------------------------------------------------------------------
-    if not args.skip_privacy:
-        _header('Step 4 — Privacy Guard on MedSec-25 (Fix 8, Fix D: sklearn AUC)')
-        from src.analysis.privacy_guard import run_validation
-        run_validation(DATA_DIR, RESULTS_DIR, FIGURES_DIR, workers=args.workers)
-
-    # ------------------------------------------------------------------
-    # Step 5: MIT-BIH real-trace evaluation (Fix 10)
-    # ------------------------------------------------------------------
-    if not args.skip_mitbih:
-        _header('Step 5 — MIT-BIH real-trace evaluation (Fix 10)')
-        from src.analysis.mitbih_trace_eval import run_mitbih_trace
-        run_mitbih_trace(DATA_DIR, RESULTS_DIR,
-                         workers=args.workers)
-
-    # ------------------------------------------------------------------
-    # Step 6: Publication figures (Fix 5, 7, 9; Fix A, B, D)
-    # ------------------------------------------------------------------
-    if not args.skip_figures:
-        _header('Step 6 — Publication figures')
-        from src.analysis.figures_q1 import (
-            _load_summary,
-            fig_energy_sla_vs_scale,
-            fig_epsilon_convergence,
-            fig_latency_vs_scale,
-            fig_metric_bars,
-            fig_mitbih_trace,
-            fig_pareto_energy_latency,
-            fig_pareto_latency_privacy,
-            fig_privacy_guard_roc,
-            fig_shap_summary,
-            fig_weight_ablation,
-        )
-        from src.config import PRIMARY_SCALE
-
-        mc_path = RESULTS_DIR / 'mc_full_summary.json'
-        if mc_path.exists():
-            summary = _load_summary(mc_path)
-            scales = sorted(summary.keys())
-            fig_latency_vs_scale(summary, FIGURES_DIR, scales=scales)
-            fig_energy_sla_vs_scale(summary, FIGURES_DIR, scales=scales)
-            fig_metric_bars(summary, FIGURES_DIR, ref_scale=PRIMARY_SCALE)
-            fig_pareto_energy_latency(summary, FIGURES_DIR, ref_scale=PRIMARY_SCALE)
-            fig_pareto_latency_privacy(summary, FIGURES_DIR, ref_scale=PRIMARY_SCALE)
-        else:
-            print(f'[SKIP] {mc_path} not found — skipping MC-dependent figures')
-
-        fig_epsilon_convergence(RESULTS_DIR / 'epsilon_trajectory.json', FIGURES_DIR)
-        # Fix B: two-panel weight ablation
-        fig_weight_ablation(
-            RESULTS_DIR / 'weight_ablation_raw.json',
-            FIGURES_DIR,
-            highci_path=RESULTS_DIR / 'weight_ablation_highci_raw.json',
-        )
-        fig_privacy_guard_roc(RESULTS_DIR / 'privacy_guard_metrics.json', FIGURES_DIR)
-        fig_shap_summary(RESULTS_DIR / 'shap_feature_importance.json', FIGURES_DIR)
-        fig_mitbih_trace(RESULTS_DIR / 'mitbih_trace_raw.json', FIGURES_DIR)
-
-    # ------------------------------------------------------------------
-    # Step 8: All-high-CI weight ablation (Fix B)
-    # ------------------------------------------------------------------
-    if not args.skip_highci:
-        _header('Step 8 — All-high-CI weight ablation ICU scenario (Fix B)')
-        from src.analysis.weight_ablation import run_ablation
-        from src.config import PRIMARY_SCALE
-        run_ablation(PRIMARY_SCALE, args.n_runs, RESULTS_DIR, ci_distribution='all_high', workers=args.workers)
-
-    # ------------------------------------------------------------------
-    # Step 9: Scheduling overhead (Fix C)
-    # ------------------------------------------------------------------
-    if not args.skip_overhead:
-        _header('Step 9 — Scheduling overhead analysis (Fix C)')
-        from src.analysis.scheduling_overhead import run_overhead_analysis
-        run_overhead_analysis(RESULTS_DIR, n_runs=args.n_runs,
-                              workers=args.workers)
-
-    # ------------------------------------------------------------------
-    # Step 11: Latency decomposition (Fix F)
-    # ------------------------------------------------------------------
-    if not args.skip_decomp:
-        _header('Step 11 — Latency decomposition tx/queue/compute (Fix F)')
-        from src.analysis.latency_decomposition import run_decomposition
-        run_decomposition(RESULTS_DIR, n_runs=args.n_runs,
-                          workers=args.workers)
-
-    # ------------------------------------------------------------------
-    # Step 12: DQN-only routing distribution (Fix G)
-    # ------------------------------------------------------------------
-    if not args.skip_routing:
-        _header('Step 12 — DQN-only routing distribution (Fix G)')
-        from src.analysis.dqn_routing_analysis import run_routing_analysis
-        run_routing_analysis(RESULTS_DIR, n_runs=args.n_runs,
-                             workers=args.workers)
-
-    # ------------------------------------------------------------------
-    # Step 13: Framing note (Fix A — assess PSO+DQN vs DQN-ES on privacy)
-    # ------------------------------------------------------------------
-    _write_framing_note(RESULTS_DIR)
-
-    dt = time.time() - t0
-    _header(f'Q1 pipeline complete in {dt/60:.1f} min')
-    print('  Deliverables:')
-    print(f'   results/mc_full_summary.json           — MC with PSO+DQN')
-    print(f'   results/table3_n1000_with_pvals.csv    — Table III (24-test Bonferroni)')
-    print(f'   results/table5_weight_ablation.csv     — Table IV (mixed-CI)')
-    print(f'   results/table6_highci_weights.csv      — Table VI (all-high-CI)')
-    print(f'   results/table5_mitbih_trace.csv        — Table V (real-trace)')
-    print(f'   results/privacy_guard_metrics.json     — AUC, TPR, FPR, F1')
-    print(f'   results/scheduling_overhead*.csv       — Fix C timing')
-    print(f'   results/latency_decomposition.csv      — Fix F breakdown')
-    print(f'   results/dqn_only_routing_dist.csv      — Fix G routing')
-    print(f'   results/framing_note.txt               — Fix A assessment')
-    print(f'   latex/figures/fig*.pdf                 — All publication figures')
+    _write_framing_note(results_dir)
+    problems = verify(results_dir)
+    _header(f'Pipeline complete in {(time.time() - t0) / 60:.1f} min')
+    print('verify:', 'ok' if not problems else '')
+    for pr in problems:
+        print('  ' + pr)
 
 
 def _write_framing_note(results_dir: Path) -> None:
     """
-    Fix A: generate framing_note.txt assessing PSO+DQN vs DQN-ES result.
+    Write framing_note.txt: PSO+DQN vs DQN-ES per metric (paired), and the
+    weight-scheme contrast on the all-high-CI workload.
     Reads from mc_full_summary.json if available; otherwise writes a stub.
     """
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -237,7 +346,7 @@ def _write_framing_note(results_dir: Path) -> None:
     if not mc_path.exists():
         with open(note_path, 'w', encoding='utf-8') as fh:
             fh.write(
-                'FRAMING NOTE (Fix A — PSO+DQN vs DQN-ES assessment)\n'
+                'FRAMING NOTE (PSO+DQN vs DQN-ES assessment)\n'
                 '=====================================================\n\n'
                 'mc_full_summary.json not yet available.\n'
                 'Re-run after Step 1 (Monte Carlo) completes.\n'
@@ -246,111 +355,87 @@ def _write_framing_note(results_dir: Path) -> None:
 
     import json
     import numpy as np
-    from scipy import stats as scipy_stats
+    from src.analysis.paired_stats import holm_adjust, paired_comparison, samples_by_run
 
     with open(mc_path, 'r', encoding='utf-8') as fh:
         summary = json.load(fh)
 
-    scale_key = '1000'
+    from src.config import PRIMARY_SCALE
+    scale_key = (str(PRIMARY_SCALE) if str(PRIMARY_SCALE) in summary
+                 else sorted(summary, key=int)[0])
     cell = summary.get(scale_key, {})
-    bbodrl  = cell.get('DQN-ES',  {})
+    dqnes  = cell.get('DQN-ES',  {})
     psodqn  = cell.get('PSO+DQN', {})
 
     metrics = ['avg_latency_ms', 'avg_energy_mj',
                'avg_privacy_risk', 'sla_violation_pct']
 
     lines = [
-        'FRAMING NOTE (Fix A — PSO+DQN vs DQN-ES assessment)',
+        'FRAMING NOTE (PSO+DQN vs DQN-ES assessment)',
         '=====================================================',
         '',
-        'Purpose: Determine whether the BBO inner-loop specifically contributes',
-        'to DQN-ES\'s advantages, or whether any DRL+bio-inspired hybrid',
-        '(e.g., PSO+DQN) achieves the same result.',
+        'PSO+DQN replaces the enumeration over the K candidates with PSO; at',
+        'K = 3 it returns the same argmin by construction.',
         '',
-        f'Reference scale: N={scale_key} tasks, 30 MC replicates.',
+        f'Reference scale: N={scale_key} tasks.',
         '',
         'Results:',
     ]
 
+    # Paired by replicate (same seeds); exact signed-rank, Holm over the 4
+    # metrics.  At K=3 PSO+DQN returns the enumeration argmin by
+    # construction, so with per-replicate seeds the runs should be identical.
     pso_matches = []
+    comps = {}
     for metric in metrics:
-        bbo_s = np.array(bbodrl.get(metric, {}).get('samples', []), dtype=float)
-        pso_s = np.array(psodqn.get(metric, {}).get('samples', []), dtype=float)
-
-        if len(bbo_s) == 0 or len(pso_s) == 0:
+        if not dqnes.get(metric, {}).get('samples') or \
+                not psodqn.get(metric, {}).get('samples'):
+            continue
+        comps[metric] = paired_comparison(samples_by_run(dqnes[metric]),
+                                          samples_by_run(psodqn[metric]),
+                                          n_boot=2000)
+    adj = dict(zip(comps, holm_adjust([c['p_exact'] for c in comps.values()])))
+    for metric in metrics:
+        if metric not in comps:
             lines.append(f'  {metric}: insufficient data')
             continue
-
-        bbo_mu = float(bbo_s.mean())
-        pso_mu = float(pso_s.mean())
-        try:
-            _, p_val = scipy_stats.ranksums(bbo_s, pso_s)
-            p_corr = min(p_val * 4, 1.0)   # Bonferroni for 4 metrics
-        except Exception:
-            p_corr = float('nan')
-
-        diff_pct = 100.0 * (pso_mu - bbo_mu) / max(abs(bbo_mu), 1e-12)
-        sig = 'SIGNIFICANT' if (not np.isnan(p_corr) and p_corr < 0.05) else 'not significant'
+        c = comps[metric]
+        if c['identical']:
+            lines.append(f'  {metric}:  DQN-ES={c["mean_ref"]:.3f}  '
+                         f'PSO+DQN={c["mean_cmp"]:.3f}  identical on all '
+                         f'{c["n_pairs"]} paired replicates')
+            pso_matches.append(True)
+            continue
+        sig = 'SIGNIFICANT' if adj[metric] < 0.05 else 'not significant'
         lines.append(
             f'  {metric}:'
-            f'  DQN-ES={bbo_mu:.3f}  PSO+DQN={pso_mu:.3f}'
-            f'  diff={diff_pct:+.1f}%'
-            f'  p_corr={p_corr:.3e}  [{sig}]'
+            f'  DQN-ES={c["mean_ref"]:.3f}  PSO+DQN={c["mean_cmp"]:.3f}'
+            f'  HL d={c["hl_diff"]:+.4f} [{c["ci_lo"]:+.4f}, {c["ci_hi"]:+.4f}]'
+            f'  p_holm={adj[metric]:.3e}  [{sig}]'
         )
-        pso_matches.append(not (not np.isnan(p_corr) and p_corr < 0.05))
+        pso_matches.append(adj[metric] >= 0.05)
 
     lines += ['']
 
-    # Overall framing recommendation
-    privacy_bbo = float(bbodrl.get('avg_privacy_risk', {}).get('mean', 0))
-    privacy_pso = float(psodqn.get('avg_privacy_risk', {}).get('mean', 0))
-
-    lines.append('FRAMING RECOMMENDATION:')
-    if privacy_bbo < privacy_pso * 0.95:
-        lines.append(
-            '  DQN-ES outperforms PSO+DQN on privacy risk by >5%.'
-            '  The BBO-specific contribution is defensible.'
-            '  Main claim: "BBO provides superior exploration for privacy-aware'
-            '  routing vs PSO in the DRL+bio-inspired hybrid framework."'
-        )
-    elif abs(privacy_bbo - privacy_pso) / max(privacy_pso, 1e-12) < 0.05:
-        lines.append(
-            '  DQN-ES and PSO+DQN are statistically indistinguishable on privacy (<5% diff).'
-            '  REFRAMING REQUIRED: The contribution is the DRL+bio-inspired coupling'
-            '  design, not BBO specifically.  Remove any claims that BBO uniquely'
-            '  drives the privacy advantage.  Retitle contribution as:'
-            '  "Hybrid DRL + bio-inspired inner search for CI-adaptive offloading."'
-        )
-    else:
-        lines.append(
-            '  Mixed result — review per-metric findings above and decide framing.'
-        )
-
+    # All-high-CI weight schemes: paired numbers only (no recommendation;
+    # interpretation belongs to the manuscript, not this script).
     weight_path = results_dir / 'weight_ablation_highci_raw.json'
-    lines += ['', 'NON-LINEAR WEIGHT CONTRIBUTION:']
+    lines += ['WEIGHT SCHEMES, all-high-CI workload (nonlinear vs flat, paired):']
     if weight_path.exists():
         with open(weight_path, 'r', encoding='utf-8') as fh:
             wdata = json.load(fh)
-        nl = wdata.get('nonlinear', {})
-        flat = wdata.get('flat', {})
-        if nl and flat:
-            priv_nl   = nl.get('avg_privacy_risk', {}).get('mean', 0)
-            priv_flat = flat.get('avg_privacy_risk', {}).get('mean', 0)
-            if priv_nl < priv_flat * 0.95:
-                lines.append(
-                    '  Non-linear weights separate from flat on all-high-CI workload.'
-                    '  Contribution claim is supported. Keep in paper.'
-                )
-            else:
-                lines.append(
-                    '  Non-linear weights do NOT separate from flat on all-high-CI workload.'
-                    '  REMOVE non-linear CI weight functions from contributions list.'
-                    '  Report full negative result in Section V-F.'
-                )
-        else:
-            lines.append('  Insufficient data in weight_ablation_highci_raw.json.')
+        nl, flat = wdata.get('nonlinear', {}), wdata.get('flat', {})
+        for metric in metrics:
+            if metric in nl and metric in flat:
+                c = paired_comparison(samples_by_run(nl[metric]),
+                                      samples_by_run(flat[metric]), n_boot=2000)
+                lines.append(f'  {metric}: nonlinear={c["mean_ref"]:.4f} '
+                             f'flat={c["mean_cmp"]:.4f}  HL d={c["hl_diff"]:+.4f} '
+                             f'[{c["ci_lo"]:+.4f}, {c["ci_hi"]:+.4f}]  '
+                             f'p_exact={c["p_exact"]:.3e}  n={c["n_pairs"]}')
     else:
-        lines.append('  weight_ablation_highci_raw.json not found — run Step 8.')
+        lines.append('  weight_ablation_highci_raw.json not found.')
+    lines += ['', 'Numbers only; see statistical_tests outputs for the declared families.']
 
     with open(note_path, 'w', encoding='utf-8') as fh:
         fh.write('\n'.join(lines) + '\n')

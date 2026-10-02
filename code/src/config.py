@@ -1,5 +1,5 @@
 """
-Central hyperparameter configuration for the Q1 DQN-ES paper.
+Central hyperparameter configuration for the DQN-ES paper.
 
 All Monte Carlo runs, ablations, and statistical analyses import from
 this single file so that the experimental protocol is reproducible and
@@ -15,11 +15,67 @@ from __future__ import annotations
 # Reproducibility
 # ---------------------------------------------------------------------------
 GLOBAL_SEED:      int = 42
-PER_RUN_SEED_FN   = lambda run_id, n_tasks: GLOBAL_SEED + run_id * 1000 + n_tasks
+
+
+def replicate_seed(run_id: int, n_tasks: int = 0) -> int:
+    """
+    Base seed of replicate r at episode length N:  s = 42 + 1000*r + N.
+
+    Every driver derives all of a replicate's randomness from this one value,
+    so replicate r is identical (tasks, topology, environment, scheduler
+    seed) across algorithms and the per-run comparison is paired.
+    Trace-driven drivers (MIT-BIH) pass n_tasks=0.
+    """
+    return GLOBAL_SEED + run_id * 1000 + n_tasks
+
+
+def replicate_seeds(run_id: int, n_tasks: int = 0) -> dict:
+    """
+    Per-stream seeds for one replicate, all derived from replicate_seed().
+
+      task       base seed (task generator; unchanged from the original rule)
+      scheduler  base seed (passed as seed= to every stochastic scheduler)
+      topology   independent stream: device/fog placement per replicate
+      env        independent stream: attack-burst draws in the environment
+
+    topology and env are spawned with numpy SeedSequence so that they do not
+    replay the task generator's random.Random(base) stream.  (With a shared
+    seed the environment's burst draws reused the task generator's CI-tier
+    draws, so every burst landed on a high-CI task.)
+    """
+    import numpy as _np
+    base = replicate_seed(run_id, n_tasks)
+    # Child i of a SeedSequence depends only on i, so adding streams never
+    # changes the existing ones.
+    kids = _np.random.SeedSequence(base).spawn(6)
+    s = lambda k: int(kids[k].generate_state(1)[0])
+    return {
+        'base':      base,
+        'task':      base,
+        'scheduler': base,
+        'topology':  s(0),
+        'env':       s(1),
+        'arrival':   s(2),   # MMPP-2 state/arrival draws
+        'ci_noise':  s(3),   # scheduler-visible CI perturbation
+        'pretrain':  s(4),   # warm-start pre-training stream
+        'fading':    s(5),   # per-task channel state: fading gain, ARQ
+    }
+
+
+def seed_global_rngs(seed: int) -> None:
+    """Seed the process-global `random` and `numpy.random` states."""
+    import random as _random
+    import numpy as _np
+    _random.seed(seed)
+    _np.random.seed(seed % (2 ** 32))
+
+
+# Legacy alias (earlier name); prefer replicate_seed().
+PER_RUN_SEED_FN = replicate_seed
 
 
 # ---------------------------------------------------------------------------
-# Monte Carlo protocol  (Fix 1, Fix 5)
+# Monte Carlo protocol
 # ---------------------------------------------------------------------------
 N_RUNS:          int        = 30
 TASK_SCALES:     list[int]  = [100, 500, 1000, 2000, 5000]
@@ -29,7 +85,7 @@ N_FOG_NODES:     int        = 3
 
 
 # ---------------------------------------------------------------------------
-# DQN-ES hyperparameters  (Fix 7: explicit epsilon decay schedule)
+# DQN-ES hyperparameters (explicit epsilon decay schedule)
 # ---------------------------------------------------------------------------
 # Epsilon-greedy exploration schedule:
 #   epsilon(t+1) = max(epsilon_min, epsilon(t) * epsilon_decay)
@@ -54,15 +110,30 @@ DQN_BATCH_SIZE:      int   = 32
 DQN_REPLAY_CAPACITY: int   = 10_000
 DQN_TARGET_SYNC:     int   = 50              # steps between target-net updates
 
-# BBO inner search
-BBO_POP:             int   = 20
-BBO_MAX_ITER:        int   = 30
-BBO_DELTA0:          float = 1.0
-BBO_TOP_K:           int   = 3               # DQN top-K pre-filter (Algorithm 1, line 3)
+# DQN top-K candidate set.  K ranges over 1..(M+2) network destinations
+# (edge, M fog nodes, cloud); local execution is not an action.
+DQN_TOP_K:           int   = 3
 
 
 # ---------------------------------------------------------------------------
-# CI-adaptive weight functions  (Fix 6: ablation defines four conditions)
+# Decomposition experiments (experiment registry below)
+# ---------------------------------------------------------------------------
+K_SWEEP:             list[int]   = [1, 2, 3, 4, 5]                   # DQN-ES K-sweep
+RANDOM_K:            int         = DQN_TOP_K                          # Random-K subset size
+Q_MIX_SWEEP:         list[float] = [0.0, 0.1, 0.25, 0.5, 0.75, 1.0]   # q-mixed
+LAMBDA_P_SWEEP:      list[float] = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0]  # ES-only privacy scale
+
+# Scalability: fog-node counts M (action set = M + 2 network
+# destinations; DQN state dim = 2 + 4 (M + 2)).  Decision-time split is
+# measured serially (no concurrent workers) on SCALING_TIMING_RUNS replicates.
+SCALING_FOG_COUNTS:  list[int]   = [3, 8, 16, 32]
+SCALING_TIMING_RUNS: int         = 5
+ROBUSTNESS_ARMS:     list[str]   = ['DQN-ES', 'ES-only', 'Random-K[K=3]',
+                                    'q-mixed[q=0.5]', 'Static-Tier']   # scaling/workload/warm-start/CI-noise arms
+
+
+# ---------------------------------------------------------------------------
+# CI-adaptive weight functions (the weight ablation compares four schemes)
 # ---------------------------------------------------------------------------
 # Default ("proposed") non-linear weights are defined analytically in
 # core/cost_function.py with constants ALPHA_E, BETA_L, GAMMA_P.
@@ -74,9 +145,141 @@ GAMMA_P:             float = 2.0
 # step-weight ablation condition.
 STEP_CI_THRESHOLD:   float = 0.5
 
+# CI tier labels for logs and the acuity adversary.  Matches the
+# synthetic generator's tiers: low [0, 0.3), medium [0.3, 0.7), high [0.7, 1].
+CI_TIER_BOUNDS:      tuple = (0.3, 0.7)
+
+
+def ci_tier(ci: float) -> str:
+    lo, hi = CI_TIER_BOUNDS
+    return 'low' if ci < lo else ('medium' if ci < hi else 'high')
+
 
 # ---------------------------------------------------------------------------
-# Privacy guard (Fix 8)
+# ECG payload  (single source for core/task.py TASK_PROFILES, the
+# synthetic generator and the MIT-BIH trace)
+# ---------------------------------------------------------------------------
+# Main configuration: a heavy 5 MB (SI) payload per ECG analysis task.
+# Sensitivity: 10 KB, the order of one raw 10 s, 360 Hz MIT-BIH window
+# (2 leads x 11 bit x 3600 samples ~ 9.9 KB).
+ECG_PAYLOAD_BITS:             int = 40_000_000     # 5 MB
+ECG_PAYLOAD_SENSITIVITY_BITS: int = 80_000         # 10 KB
+
+
+# ---------------------------------------------------------------------------
+# Result return / downlink  (core/offload_model.py)
+# ---------------------------------------------------------------------------
+# Every offloaded task returns a result (class label, confidence, timestamp)
+# to the wearable.  Latency adds the return propagation delay plus
+# RESULT_SIZE_BITS / R_dl; the wearable pays RX power for the download.
+RESULT_SIZE_BITS:              int        = 8_000          # 1 KB (SI) result
+RESULT_SIZE_SENSITIVITY_BITS:  list[int]  = [8_000, 32_000, 128_000, 512_000]  # 1, 4, 16, 64 KB
+
+# Downlink rate uses the uplink channel model on the wearable's registered
+# link (reciprocal channel, wearable's 20 MHz channel) with the serving side
+# transmitting at DOWNLINK_TX_POWER_W.  Assumed value, set at the regulatory
+# maximum: ETSI EN 300 328 V2.2.2 (2019-07) cl. 4.3.2.2.3 limits 2.4 GHz
+# wideband (non-FHSS) equipment to 20 dBm e.i.r.p.; not measured.
+DOWNLINK_TX_POWER_W:           float      = 0.100
+
+
+# ---------------------------------------------------------------------------
+# Wearable power model (core/hardware_profiles.py WEARABLE_ESP32)
+# ---------------------------------------------------------------------------
+# All values from the Espressif ESP32-S3 Series Datasheet, Version 2.2
+# (2026-03-05).  Radiated power (the rate equation) and battery draw (the
+# energy terms) are separate constants.  Draw = datasheet current x supply.
+
+# Supply: Table 5-2 (Recommended Operating Conditions), VDD typ 3.3 V
+# (3.0-3.6 V); the section 5.6.1 currents are measured at 3.3 V, 25 C.
+WEARABLE_SUPPLY_V:             float      = 3.3
+
+# Radiated TX power (uplink SNR only): Table 6-2, 802.11n HT20 MCS7, typ
+# 18.5 dBm -- the HT20 output whose current Table 5-7 gives.  Below the
+# ETSI EN 300 328 cl. 4.3.2.2.3 bound of 20 dBm e.i.r.p.
+WEARABLE_TX_RADIATED_DBM:      float      = 18.5
+WEARABLE_TX_RADIATED_W:        float      = 10.0 ** (WEARABLE_TX_RADIATED_DBM / 10.0) / 1000.0
+
+# Battery draw while transmitting: Table 5-7, TX 802.11n HT20 MCS7 @ 18.5 dBm,
+# 283 mA (peak, 100 % duty cycle).
+WEARABLE_TX_CURRENT_A:         float      = 0.283
+WEARABLE_TX_DRAW_W:            float      = WEARABLE_TX_CURRENT_A * WEARABLE_SUPPLY_V
+
+# Battery draw while receiving the result: Table 5-7, RX 802.11b/g/n HT20,
+# 88 mA.
+WEARABLE_RX_CURRENT_A:         float      = 0.088
+WEARABLE_RX_POWER_W:           float      = WEARABLE_RX_CURRENT_A * WEARABLE_SUPPLY_V
+
+# Battery draw while awaiting the result: Table 5-9 (Modem-sleep), 240 MHz,
+# WAITI (dual core idle), Typ2 = all peripheral clocks enabled, 47.6 mA.
+WEARABLE_WAIT_CURRENT_A:       float      = 0.0476
+WEARABLE_WAIT_DRAW_W:          float      = WEARABLE_WAIT_CURRENT_A * WEARABLE_SUPPLY_V
+
+# Battery draw during local computation: Table 5-9, 240 MHz, single core
+# running 32-bit data access instructions, other core idle, Typ2 (peripheral
+# clocks enabled), 65.9 mA.  Local energy = draw x C_i / f_w (the single-core
+# latency model); the CMOS kappa model is not used for the wearable.
+WEARABLE_COMPUTE_CURRENT_A:    float      = 0.0659
+WEARABLE_COMPUTE_DRAW_W:       float      = WEARABLE_COMPUTE_CURRENT_A * WEARABLE_SUPPLY_V
+
+# CPU clock: datasheet p. 5, "up to 240 MHz".
+WEARABLE_CPU_FREQ_HZ:          float      = 240e6
+
+
+# ---------------------------------------------------------------------------
+# Workload realism (data_ingestion/event_generator.py)
+# ---------------------------------------------------------------------------
+# Default arrivals: Poisson with rate N / 300 s.  MMPP-2 option: two states
+# with rate multipliers MMPP2_RATE_MULTIPLIERS (renormalised so the long-run
+# rate equals the Poisson rate); after each arrival the state switches with
+# probability MMPP2_SWITCH_PROBS[state] (low->high, high->low).  Assumed
+# values, chosen to give short bursts at ~4x the mean rate.
+MMPP2_RATE_MULTIPLIERS: tuple = (0.5, 4.0)
+MMPP2_SWITCH_PROBS:     tuple = (0.02, 0.10)
+# Load knob: target *offered* edge utilisation rho = lambda * E[C_i] / f_edge
+# (the utilisation if every task ran on the edge), which sets the absolute
+# arrival rate lambda independent of N.  The achieved utilisation depends on
+# the scheduler and is reported per run (edge_utilisation).
+LOAD_RHO_TARGETS:       list  = [0.3, 0.6, 0.85]
+
+# Channel realism (off by default).  Per task, the
+# wearable's link sees a Rayleigh block-fading power gain g ~ Exp(1) (uplink
+# and, reciprocally, downlink) and an ARQ with independent packet losses:
+# the payload is split into ARQ_PACKET_BITS packets and each is resent until
+# received, so the number of transmissions is n_pkt + NegBin(n_pkt, 1 - p).
+# Schedulers plan with the expected channel (g = 1, expected transmission
+# factor 1 / (1 - p)); the environment realises the sampled channel.
+ARQ_PACKET_BITS:        int   = 12_000                 # 1500-byte packets
+PACKET_LOSS_SWEEP:      list  = [0.01, 0.05]
+
+# Warm start: pre-train DQN schedulers on N_pre synthetic tasks
+# from the replicate's disjoint 'pretrain' seed stream before evaluation.
+WARM_START_SWEEP:       list  = [500, 2000]
+
+# CI noise: perturbs only the Phi the scheduler sees; logs and
+# labels keep the true Phi.  Gaussian sigma (clipped to [0, 1]) and a
+# tier-misclassification probability (Phi redrawn uniformly inside one of
+# the other two CI_TIER_BOUNDS tiers).  Misclassification is applied first
+# when both are set.
+CI_NOISE_SIGMAS:        list  = [0.05, 0.1, 0.2]
+CI_MISCLASS_PROBS:      list  = [0.1, 0.2]
+
+
+# ---------------------------------------------------------------------------
+# Adversarial attack bursts (environment.py)
+# ---------------------------------------------------------------------------
+# On every task arrival the environment draws an attack burst with
+# probability ATTACK_BURST_PROB; during a burst the task's p_atk is set to
+# ATTACK_BURST_INTENSITY (otherwise it keeps its generated value, 0 for
+# synthetic and MIT-BIH tasks).  p_atk enters only the DQN state vector.
+# Applies to every scheduler and every run; set ATTACK_BURST_PROB = 0 to
+# disable.
+ATTACK_BURST_PROB:      float = 0.05
+ATTACK_BURST_INTENSITY: float = 0.8
+
+
+# ---------------------------------------------------------------------------
+# Privacy guard (entropy threshold)
 # ---------------------------------------------------------------------------
 # A flow is classified as a "traffic-analysis attack" when its empirical
 # offload-entropy ratio H/H_max falls below this threshold for the source
@@ -85,37 +288,116 @@ PRIVACY_ENTROPY_THRESHOLD: float = 0.85
 
 
 # ---------------------------------------------------------------------------
-# Real-trace evaluation (Fix 10)
+# MIT-BIH trace-driven evaluation
 # ---------------------------------------------------------------------------
 MITBIH_N_RUNS:       int   = 30
-MITBIH_PAYLOAD_BITS: int   = int(5 * 1024 * 1024 * 8)  # 5 MB — matches main simulation ECG task profile
+MITBIH_PAYLOAD_BITS: int   = None  # set below to ECG_PAYLOAD_BITS (single source)
 MITBIH_DEADLINE_S:   float = 0.500                   # 500 ms ECG SLA (matches paper's stated SLA)
 MITBIH_RHO:          float = 0.9
+MITBIH_PAYLOAD_BITS = ECG_PAYLOAD_BITS
 
 
 # ---------------------------------------------------------------------------
-# Statistical testing  (Fix 4, Fix E: updated for PSO+DQN)
+# Statistical testing  (analysis/statistical_tests.py, paired_stats.py)
 # ---------------------------------------------------------------------------
-# Significance tested on four metrics across all baselines vs DQN-ES.
-# Bonferroni correction: alpha_corrected = 0.05 / (n_baselines * n_metrics)
+# Unit = replicate (per-run mean); replicates are paired by run_id because
+# every algorithm sees the same seeds.  Test: Wilcoxon signed-rank on the
+# paired differences d = reference - comparator, exact p; Holm over each
+# family declared here (before the runs); effect sizes: Hodges-Lehmann
+# paired difference with a replicate-bootstrap CI and matched-pairs
+# rank-biserial r.  Cohen's d is not reported.
 STAT_ALPHA:          float = 0.05
 STAT_METRICS:        list[str] = [
     'avg_latency_ms', 'avg_energy_mj',
     'avg_privacy_risk', 'sla_violation_pct',
 ]
-# Fix A: PSO+DQN added — family size is now 6 × 4 = 24
 STAT_BASELINES:      list[str] = [
     'PSO', 'ACO', 'HS-HHO', 'ES-only', 'DQN-only',
 ]
-# Bonferroni denominator = len(STAT_BASELINES) * len(STAT_METRICS) = 24
+STAT_BOOT_N:         int   = 10_000
+STAT_BOOT_SEED:      int   = GLOBAL_SEED
+STAT_CI_LEVEL:       float = 0.95
+
+# Declared comparison families.  Holm is applied within a family across all
+# (comparator x metric) tests.  PSO+DQN is not tested: at K=3 it makes the
+# same decisions as DQN-ES by construction (reported as "identical").
+STAT_FAMILIES: dict = {
+    'main': {                                   # 5 x 4 = 20 tests
+        'reference':   'DQN-ES',
+        'comparators': STAT_BASELINES,
+        'metrics':     STAT_METRICS,
+    },
+    'decomposition': {                          # 2 x 4 = 8 tests
+        'reference':   'DQN-ES',
+        'comparators': ['Random-K[K=3]', 'Static-Tier'],
+        'metrics':     STAT_METRICS,
+    },
+    'weight_ablation': {                        # 3 x 4 = 12 tests
+        'reference':   'nonlinear',
+        'comparators': ['flat', 'step', 'linear'],
+        'metrics':     STAT_METRICS,
+    },
+    'privacy_inference': {                      # acuity adversary: 3 x 1 = 3 tests
+        'reference':   'DQN-ES',
+        'comparators': ['ES-only', 'Random-K[K=3]', 'Static-Tier'],
+        'metrics':     ['adversary_auc'],       # per test replicate (analysis/e5_adversary.py)
+    },
+}
+
+# Acuity-inference adversary (analysis/e5_adversary.py), task-level (the
+# generator draws CI tiers i.i.d. per task, so a window-majority label never
+# occurs).  Primary configuration for the 'privacy_inference' family,
+# declared before the final runs: one sample per task, label = the task's true
+# CI tier is 'high'; features = the task's destination, the device's
+# histogram over its preceding `context` destinations, inter-arrival since
+# the device's previous task, response time and payload size;
+# HistGradientBoosting; train on replicates 0-19, test on 20-29
+# (replicate-disjoint); the unit is the per-test-replicate AUC.
+E5_ADVERSARY: dict = {
+    'unit':               'task',
+    'context':            50,
+    'train_runs':         list(range(0, 20)),
+    'test_runs':          list(range(20, 30)),
+    'primary_features':   'dest+timing+size',
+    'primary_classifier': 'hgb',
+    'seed':               GLOBAL_SEED,
+}
+
+# Primary statistic of the random-subset and reweighted-greedy frontiers,
+# "privacy excess at matched latency".
+# Per replicate r: sort the frontier's points (latency_r, R_P_r) by latency,
+# interpolate R_P linearly at DQN-ES's latency_r, and take
+# excess_r = R_P(DQN-ES)_r - R_P(frontier at latency_r).  A replicate whose
+# DQN-ES latency lies outside that replicate's frontier latency range is not
+# extrapolated: it is excluded and the count is reported.  Report the median
+# of excess_r with a replicate-bootstrap CI (STAT_BOOT_N, STAT_CI_LEVEL),
+# for all-task and for steady-state R_P.  Negative = DQN-ES below the frontier.
+MATCHED_LATENCY: dict = {
+    'reference': 'DQN-ES',
+    'x_metric':  'avg_latency_ms',
+    'y_metrics': ['avg_privacy_risk', 'avg_privacy_risk_ss'],
+    'frontiers': {
+        'q_mixed':  [f'q-mixed[q={q:g}]' for q in Q_MIX_SWEEP],
+        'lambda_p': [f'ES-only[lP={lam:g}]' for lam in LAMBDA_P_SWEEP],
+    },
+    'scale':     PRIMARY_SCALE,
+}
+
+# TOST (equivalence) only where equivalence is claimed; off by default.
+# Margins are declared here, before the runs, in the metric's units.
+STAT_TOST_ENABLED:   bool  = False
+STAT_TOST_MARGINS:   dict  = {
+    'avg_privacy_risk':  0.01,
+    'avg_latency_ms':    2.0,
+}
 
 
 # ---------------------------------------------------------------------------
-# Algorithm registry  (Fix 2: includes ablations; Fix A: adds PSO+DQN)
+# Algorithm registries
 # ---------------------------------------------------------------------------
 def get_full_algorithm_registry():
     """
-    Return the complete algorithm registry including PSO+DQN (Fix A),
+    Return the main 9-algorithm registry, including PSO+DQN,
     ES-only and DQN-only ablations.
     Imported lazily to avoid circular imports at module load.
     """
@@ -142,6 +424,69 @@ def get_full_algorithm_registry():
     }
 
 
+def get_experiment_registry():
+    """
+    Decomposition arms, kept out of the main comparison table.
+    Values are functools.partial(SchedulerClass, **params); make_scheduler()
+    and the drivers accept them wherever a class is accepted.
+
+      DQN-ES[K=k]       K-sweep (K=3 is DQN-ES, K=1 is DQN-only's policy,
+                        K=5 enumerates every destination = ES-only decisions)
+      Random-K[K=k]     random K-subset + argmin F, no learning
+      q-mixed[q=..]     random K-subset w.p. q, else full enumeration
+      Static-Tier       ECG -> edge, all other task types local
+      ES-only[lP=..]    reweighted greedy (privacy weight x lambda_P)
+    """
+    from functools import partial
+    from src.algorithms.dqn_es import DQNESScheduler
+    from src.algorithms.es_only import ESOnlyScheduler
+    from src.algorithms.random_k import QMixedScheduler, RandomKScheduler
+    from src.algorithms.static_tier import StaticTierScheduler
+
+    reg = {}
+    for k in K_SWEEP:
+        reg[f'DQN-ES[K={k}]'] = partial(DQNESScheduler, n_candidate_nodes=k)
+    reg[f'Random-K[K={RANDOM_K}]'] = partial(RandomKScheduler,
+                                             n_candidate_nodes=RANDOM_K)
+    for q in Q_MIX_SWEEP:
+        reg[f'q-mixed[q={q:g}]'] = partial(QMixedScheduler, q=q,
+                                           n_candidate_nodes=RANDOM_K)
+    reg['Static-Tier'] = StaticTierScheduler
+    for lam in LAMBDA_P_SWEEP:
+        reg[f'ES-only[lP={lam:g}]'] = partial(ESOnlyScheduler,
+                                              privacy_weight_scale=lam)
+    return reg
+
+
+def get_registry(name: str = 'main'):
+    """'main' (9-algorithm comparison), 'experiments', or 'all'."""
+    if name == 'main':
+        return get_full_algorithm_registry()
+    if name == 'experiments':
+        return get_experiment_registry()
+    if name == 'all':
+        return {**get_full_algorithm_registry(), **get_experiment_registry()}
+    raise ValueError(f'unknown registry {name!r}')
+
+
+def make_scheduler(sched_cls, topology, seed: int, **kwargs):
+    """
+    Construct a scheduler for one replicate.  `seed` is passed to every
+    scheduler whose constructor accepts it (all stochastic ones do), so no
+    driver can silently fall back to a class default seed.  `sched_cls` may
+    be a class or a functools.partial of one (experiment registry).
+    """
+    import functools
+    import inspect
+    if isinstance(sched_cls, functools.partial):
+        kwargs = {**sched_cls.keywords, **kwargs}
+        sched_cls = sched_cls.func
+    params = inspect.signature(sched_cls.__init__).parameters
+    if 'seed' in params:
+        kwargs['seed'] = seed
+    return sched_cls(topology, **kwargs)
+
+
 def summary() -> str:
     """Return a human-readable summary of all hyperparameters."""
     return (
@@ -153,13 +498,13 @@ def summary() -> str:
         f"eps<0.05 after {EPSILON_T_AT_0_05} tasks\n"
         f"  DQN: hidden={DQN_HIDDEN_DIM}  lr={DQN_LR}  gamma={DQN_GAMMA}  "
         f"batch={DQN_BATCH_SIZE}\n"
-        f"  BBO: pop={BBO_POP}  iter={BBO_MAX_ITER}  K={BBO_TOP_K}  "
-        f"delta0={BBO_DELTA0}\n"
+        f"  DQN top-K: K={DQN_TOP_K}  K-sweep={K_SWEEP}\n"
+        f"  Random-K={RANDOM_K}  q-mix={Q_MIX_SWEEP}  lambda_P={LAMBDA_P_SWEEP}\n"
         f"  CI weights (non-linear, default): "
         f"alpha_E={ALPHA_E} beta_L={BETA_L} gamma_P={GAMMA_P}\n"
         f"  Privacy guard entropy threshold: {PRIVACY_ENTROPY_THRESHOLD}\n"
-        f"  Statistical tests: alpha={STAT_ALPHA}  "
-        f"Bonferroni denom={len(STAT_BASELINES)*len(STAT_METRICS)}\n"
+        f"  Statistical tests: paired signed-rank (exact), Holm, alpha={STAT_ALPHA}; "
+        f"families={ {k: len(v['comparators']) * len(v['metrics']) for k, v in STAT_FAMILIES.items()} }\n"
     )
 
 

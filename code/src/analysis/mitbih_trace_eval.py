@@ -1,5 +1,5 @@
 """
-mitbih_trace_eval.py — Fix 10: MIT-BIH real-trace evaluation, parallel.
+mitbih_trace_eval.py — MIT-BIH real-trace evaluation, parallel.
 
 Each (algorithm, run_id) cell is fully independent, so the n_runs * n_algs
 matrix is dispatched to a multiprocessing.Pool.  On an 8-core laptop this
@@ -44,11 +44,25 @@ from src.config import (
     N_FOG_NODES,
     N_WEARABLES,
     get_full_algorithm_registry,
+    get_registry,
+    replicate_seeds,
+    seed_global_rngs,
 )
 from src.core.task import HealthcareTask, TASK_PROFILES
 from src.data_ingestion.parse_mitbih import load_mitbih_events
 from src.simulation.environment import OffloadingEnvironment
-from src.simulation.topology import build_healthcare_topology
+from src.simulation.episode_log import (
+    add_queue_metrics,
+    add_steady_state,
+    raw_log_path,
+    write_raw_log,
+)
+from src.simulation.replicate import (
+    apply_task_overrides,
+    build_topology,
+    overrides_tag,
+    run_scheduler,
+)
 
 
 # =========================================================================
@@ -84,6 +98,7 @@ def _events_to_tasks(events: list, topo, rng) -> List[HealthcareTask]:
             ci_score=float(ev.get('ci_score', 0.5)),
             attack_probability=0.0,
             source='mitbih',
+            task_type='ecg_analysis',
         ))
     return tasks
 
@@ -99,27 +114,25 @@ def _run_cell(payload: tuple) -> tuple:
     Returns (alg_name, run_id, metrics_dict_or_None, elapsed_seconds).
     """
     import random as _r
-    alg_name, run_id = payload
+    alg_name, run_id, raw_dir, overrides = payload
     t0 = time.time()
 
-    seed = GLOBAL_SEED + run_id * 1000
-    _r.seed(seed)
-    np.random.seed(seed)
-    local_rng = _r.Random(seed)
+    seeds = replicate_seeds(run_id, 0)
+    seed_global_rngs(seeds['base'])
+    local_rng = _r.Random(seeds['task'])
 
-    topo = build_healthcare_topology(
-        n_wearables=N_WEARABLES, n_fog_nodes=N_FOG_NODES, seed=seed,
-    )
+    topo = build_topology(run_id, 0)
     tasks = _events_to_tasks(_WORKER_EVENTS, topo, local_rng)
+    apply_task_overrides(tasks, overrides, seeds)
 
-    registry = get_full_algorithm_registry()
-    sched_cls = registry[alg_name]
-    sched = sched_cls(topo)
-    env = OffloadingEnvironment(topo, sched, len(tasks), seed=seed)
-    res = env.run(tasks)
+    registry = get_registry('all')
+    res, _ = run_scheduler(registry[alg_name], topo, tasks, seeds)
 
     if not res:
         return alg_name, run_id, None, time.time() - t0
+    if raw_dir is not None:
+        write_raw_log(res, raw_log_path(raw_dir, len(tasks), alg_name, run_id),
+                      alg_name, run_id, len(tasks))
 
     metrics = {
         'avg_latency_ms':    mean(r['latency_ms']    for r in res),
@@ -128,6 +141,9 @@ def _run_cell(payload: tuple) -> tuple:
         'sla_violation_pct': 100.0 * sum(r['sla_violated']
                                          for r in res) / len(res),
     }
+    add_steady_state(metrics, res)
+    add_queue_metrics(metrics, res)
+    metrics['run_id'] = run_id
     return alg_name, run_id, metrics, time.time() - t0
 
 
@@ -141,6 +157,9 @@ def run_mitbih_trace(
     workers: int | None = None,
     smoke: bool = False,
     max_tasks: int | None = None,
+    algorithms: list | None = None,
+    raw_logs: bool = True,
+    task_overrides: dict | None = None,
 ) -> dict:
     """
     Run the MIT-BIH trace evaluation in parallel.
@@ -165,7 +184,10 @@ def run_mitbih_trace(
     print(f'[MIT-BIH] Loaded {len(events)} window events.')
 
     registry = get_full_algorithm_registry()
-    alg_names = list(registry.keys())
+    alg_names = list(algorithms) if algorithms else list(registry.keys())
+    unknown = [a for a in alg_names if a not in get_registry('all')]
+    if unknown:
+        raise KeyError(f'unknown algorithms: {unknown}')
 
     if smoke:
         n_runs = 1
@@ -178,7 +200,9 @@ def run_mitbih_trace(
         events = events[:max_tasks]
         print(f'[MIT-BIH] Truncated to {len(events)} tasks (max_tasks).')
 
-    payloads = [(alg, rid) for alg in alg_names for rid in range(n_runs)]
+    raw_dir = (results_dir / 'raw' / 'mitbih') if raw_logs else None
+    payloads = [(alg, rid, raw_dir, task_overrides)
+                for alg in alg_names for rid in range(n_runs)]
     n_jobs = len(payloads)
 
     if workers is None:
@@ -216,11 +240,12 @@ def run_mitbih_trace(
     summary = {}
     csv_rows = []
     for alg in alg_names:
-        runs = raw[alg]
+        runs = sorted(raw[alg], key=lambda r: r['run_id'])   # pair by replicate
         row = {'algorithm': alg}
         agg = {}
         for k in ['avg_latency_ms', 'avg_energy_mj',
-                  'avg_privacy_risk', 'sla_violation_pct']:
+                  'avg_privacy_risk', 'sla_violation_pct',
+                  'avg_queue_ms', 'edge_utilisation']:
             vs = np.array([r[k] for r in runs], dtype=float)
             if len(vs) == 0:
                 agg[k] = {'mean': 0.0, 'std': 0.0, 'samples': []}
@@ -229,9 +254,20 @@ def run_mitbih_trace(
                 continue
             agg[k] = {'mean': float(vs.mean()),
                       'std':  float(vs.std()),
-                      'samples': vs.tolist()}
+                      'samples': vs.tolist(),
+                      'run_ids': [int(r['run_id']) for r in runs]}
             row[f'{k}_mean'] = float(vs.mean())
             row[f'{k}_std']  = float(vs.std())
+        # Steady-state R_P: only runs long enough to pass warm-up
+        ss_runs = [r for r in runs if 'avg_privacy_risk_ss' in r]
+        ss = np.array([r['avg_privacy_risk_ss'] for r in ss_runs], dtype=float)
+        if len(ss):
+            agg['avg_privacy_risk_ss'] = {'mean': float(ss.mean()),
+                                          'std': float(ss.std()),
+                                          'samples': ss.tolist(),
+                                          'run_ids': [int(r['run_id']) for r in ss_runs]}
+            row['avg_privacy_risk_ss_mean'] = float(ss.mean())
+            row['avg_privacy_risk_ss_std'] = float(ss.std())
         summary[alg] = agg
         csv_rows.append(row)
 
@@ -239,7 +275,8 @@ def run_mitbih_trace(
     csv_path = results_dir / f'table5_mitbih_trace{suffix}.csv'
     json_path = results_dir / f'mitbih_trace_raw{suffix}.json'
     with open(csv_path, 'w', newline='', encoding='utf-8') as fh:
-        wr = csv.DictWriter(fh, fieldnames=list(csv_rows[0].keys()))
+        fields = list(dict.fromkeys(k for r in csv_rows for k in r))
+        wr = csv.DictWriter(fh, fieldnames=fields, restval='')
         wr.writeheader()
         wr.writerows(csv_rows)
     with open(json_path, 'w', encoding='utf-8') as fh:
@@ -247,14 +284,14 @@ def run_mitbih_trace(
 
     print(f'\n[MIT-BIH] Real-trace results '
           f'(n_tasks={len(events)}, runs={n_runs}):')
-    hdr = (f"  {'Algorithm':<12s} {'Lat(ms)':>10s} {'Eng(mJ)':>10s} "
+    hdr = (f"  {'Algorithm':<18s} {'Lat(ms)':>10s} {'Eng(mJ)':>10s} "
            f"{'Priv':>8s} {'SLA%':>8s}")
     print(hdr)
     print('  ' + '-' * (len(hdr) - 2))
     for alg in alg_names:
         s = summary[alg]
         tag = '*' if alg == 'DQN-ES' else ' '
-        print(f'  {alg+tag:<12s} '
+        print(f'  {alg+tag:<18s} '
               f'{s["avg_latency_ms"]["mean"]:>10.2f} '
               f'{s["avg_energy_mj"]["mean"]:>10.4f} '
               f'{s["avg_privacy_risk"]["mean"]:>8.4f} '
@@ -275,19 +312,40 @@ def main():
                    help='1-run smoke test (truncates trace to verify pipeline)')
     p.add_argument('--max-tasks',   type=int, default=None,
                    help='Cap trace length (e.g., 200 for fast verification)')
+    p.add_argument('--ecg-payload-bits', type=int, default=None,
+                   help='Override the ECG payload (10 KB sensitivity = 80000)')
+    p.add_argument('--result-size-bits', type=int, default=None,
+                   help='Override the result size S_res')
+    p.add_argument('--algorithms', nargs='+', default=None,
+                   help='Registry names (main or experiment registry); '
+                        'default = the 9 main algorithms')
     args = p.parse_args()
 
     script_dir   = Path(__file__).resolve().parent
     project_root = script_dir.parent.parent.parent
     data_dir     = Path(args.data_dir)    if args.data_dir    else project_root / 'data'
     results_dir  = Path(args.results_dir) if args.results_dir else project_root / 'results'
+    overrides = {'ecg_payload_bits': args.ecg_payload_bits,
+                 'result_size_bits': args.result_size_bits}
+    overrides = {k: v for k, v in overrides.items() if v is not None} or None
+    if overrides and not args.results_dir:
+        results_dir = results_dir / 'sensitivity' / overrides_tag(overrides)
 
+    from src.analysis.manifest import Manifest
+    with Manifest(results_dir, 'cli_mitbih', vars(args), n_runs=args.n_runs,
+                  scales=[0], data_dir=data_dir):
+        _run_mitbih_cli(args, data_dir, results_dir, overrides)
+
+
+def _run_mitbih_cli(args, data_dir, results_dir, overrides):
     run_mitbih_trace(
         data_dir, results_dir,
         n_runs=args.n_runs,
         workers=args.workers,
         smoke=args.smoke,
         max_tasks=args.max_tasks,
+        algorithms=args.algorithms,
+        task_overrides=overrides,
     )
 
 

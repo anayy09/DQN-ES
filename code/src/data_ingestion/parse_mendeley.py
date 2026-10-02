@@ -1,7 +1,8 @@
 """
 parse_mendeley.py
 -----------------
-Parse the Mendeley IoMT dataset (patients_data_with_alerts.xlsx) and convert
+Parse the Kaggle IoMT dataset (patients_data_with_alerts.xlsx; the folder and
+module names are historical) and convert
 each patient record into a simulation task event 4-tuple:
     (D_i, C_i, T_max_i, rho_i)  +  Criticality Index Phi_i
 
@@ -16,34 +17,9 @@ import math
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Task-type parameter profiles
+# Task-type parameter profiles: single source in src/core/task.py
 # ---------------------------------------------------------------------------
-TASK_PROFILES = {
-    "ecg_analysis": {
-        "data_size_bits": 40_000_000,   # 5 MB
-        "cpu_cycles":     12_000_000,
-        "max_delay_s":    0.5,
-        "privacy_sensitivity": 0.9,
-    },
-    "spo2_monitoring": {
-        "data_size_bits": 40_000,       # 5 KB
-        "cpu_cycles":     500_000,
-        "max_delay_s":    2.0,
-        "privacy_sensitivity": 0.6,
-    },
-    "bp_analysis": {
-        "data_size_bits": 400_000,      # 50 KB
-        "cpu_cycles":     2_000_000,
-        "max_delay_s":    1.0,
-        "privacy_sensitivity": 0.8,
-    },
-    "multi_vital": {
-        "data_size_bits": 8_000_000,    # 1 MB
-        "cpu_cycles":     8_000_000,
-        "max_delay_s":    0.8,
-        "privacy_sensitivity": 0.85,
-    },
-}
+from src.core.task import TASK_PROFILES  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Alert-level → CI base range
@@ -341,7 +317,7 @@ def parse_mendeley(data_dir: str) -> list:
 # ---------------------------------------------------------------------------
 def load_mendeley_events(data_dir: str) -> list:
     """
-    Load (or parse and cache) Mendeley simulation events.
+    Load (or parse and cache) Kaggle IoMT simulation events.
 
     Tries to read results/mendeley_events.json first; falls back to
     parsing the raw XLSX if the JSON does not exist.

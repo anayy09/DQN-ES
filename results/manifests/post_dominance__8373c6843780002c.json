@@ -1,0 +1,57 @@
+{
+ "run_id": "8373c6843780002c",
+ "step": "post_dominance",
+ "code": {
+  "git_commit": "fc9940be98c22d18b3d1d773d05d0dacdd7cedf1",
+  "git_tag": null,
+  "git_dirty": true,
+  "git_dirty_paths": [
+   ".gitignore",
+   "results/manifests/runs.jsonl"
+  ],
+  "entrypoint": "C:\\Users\\sinhal.anay\\OneDrive - University of Florida\\Papers\\Bio-Inspired Adaptive Task Offloading System\\code\\src\\analysis\\post_run.py dominance --summaries ../results/mc_full_summary.json ../results/experiments/mc_exp_summary.json --scale 1000 --out ../results/exploratory"
+ },
+ "config": {
+  "resolved_sha256": "d3fd1b8eeb2a28fafa5ceba79da7c02a5d55ac24fdc78b973ca76fcbf46cea95",
+  "params": {
+   "command": "dominance",
+   "raw_dirs": [],
+   "out": "results/exploratory",
+   "algorithms": null,
+   "e5_dir": null,
+   "summaries": [
+    "results/mc_full_summary.json",
+    "results/experiments/mc_exp_summary.json"
+   ],
+   "scale": 1000
+  }
+ },
+ "seeds": {
+  "rule": "replicate_seed(r, N) = 42 + 1000 r + N for tasks and scheduler; topology/env/arrival/ci_noise/pretrain streams = SeedSequence(replicate_seed(r, N)).spawn(5)",
+  "base_seeds": {}
+ },
+ "data": {},
+ "env": {
+  "cpu": "Intel(R) Core(TM) Ultra 7 266V",
+  "logical_cpus": 8,
+  "os": "win32",
+  "python": "3.14.6",
+  "numpy": "2.4.6",
+  "packages": {
+   "numpy": "2.4.6",
+   "scipy": "1.17.1",
+   "scikit-learn": "1.9.1",
+   "pandas": "3.0.3",
+   "matplotlib": "3.11.0"
+  }
+ },
+ "determinism": {
+  "claimed_deterministic": true,
+  "note": "all RNGs seeded per replicate; bitwise equality is expected on the same machine and library versions; BLAS reduction order may differ across machines"
+ },
+ "outputs": [],
+ "started_utc": "2026-09-30T16:56:48Z",
+ "finished_utc": "2026-09-30T16:58:54Z",
+ "wall_s": 125.8,
+ "status": "finished"
+}

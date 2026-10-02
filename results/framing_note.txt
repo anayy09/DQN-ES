@@ -1,20 +1,21 @@
-FRAMING NOTE (Fix A — PSO+DQN vs DQN-ES assessment)
+FRAMING NOTE (PSO+DQN vs DQN-ES assessment)
 =====================================================
 
-Purpose: Determine whether the BBO inner-loop specifically contributes
-to DQN-ES's advantages, or whether any DRL+bio-inspired hybrid
-(e.g., PSO+DQN) achieves the same result.
+PSO+DQN replaces the enumeration over the K candidates with PSO; at
+K = 3 it returns the same argmin by construction.
 
-Reference scale: N=1000 tasks, 30 MC replicates.
+Reference scale: N=1000 tasks.
 
 Results:
-  avg_latency_ms:  DQN-ES=71.720  PSO+DQN=73.739  diff=+2.8%  p_corr=7.202e-02  [not significant]
-  avg_energy_mj:  DQN-ES=7.198  PSO+DQN=7.587  diff=+5.4%  p_corr=6.891e-03  [SIGNIFICANT]
-  avg_privacy_risk:  DQN-ES=0.396  PSO+DQN=0.392  diff=-1.0%  p_corr=2.584e-01  [not significant]
-  sla_violation_pct:  DQN-ES=0.600  PSO+DQN=0.770  diff=+28.3%  p_corr=5.309e-02  [not significant]
+  avg_latency_ms:  DQN-ES=89.295  PSO+DQN=89.295  identical on all 30 paired replicates
+  avg_energy_mj:  DQN-ES=52.237  PSO+DQN=52.237  identical on all 30 paired replicates
+  avg_privacy_risk:  DQN-ES=0.333  PSO+DQN=0.333  identical on all 30 paired replicates
+  sla_violation_pct:  DQN-ES=1.110  PSO+DQN=1.110  identical on all 30 paired replicates
 
-FRAMING RECOMMENDATION:
-  DQN-ES and PSO+DQN are statistically indistinguishable on privacy (<5% diff).  REFRAMING REQUIRED: The contribution is the DRL+bio-inspired coupling  design, not BBO specifically.  Remove any claims that BBO uniquely  drives the privacy advantage.  Retitle contribution as:  "Hybrid DRL + bio-inspired inner search for CI-adaptive offloading."
+WEIGHT SCHEMES, all-high-CI workload (nonlinear vs flat, paired):
+  avg_latency_ms: nonlinear=83.0470 flat=85.9553  HL d=-2.5920 [-3.5593, -1.8945]  p_exact=1.639e-07  n=30
+  avg_energy_mj: nonlinear=48.4969 flat=48.7744  HL d=-0.0232 [-0.8655, +0.6645]  p_exact=9.354e-01  n=30
+  avg_privacy_risk: nonlinear=0.3770 flat=0.3440  HL d=+0.0323 [+0.0265, +0.0395]  p_exact=5.588e-09  n=30
+  sla_violation_pct: nonlinear=0.7400 flat=0.9733  HL d=-0.2000 [-0.3000, -0.1000]  p_exact=3.815e-06  n=30
 
-NON-LINEAR WEIGHT CONTRIBUTION:
-  Non-linear weights do NOT separate from flat on all-high-CI workload.  REMOVE non-linear CI weight functions from contributions list.  Report full negative result in Section V-F.
+Numbers only; see statistical_tests outputs for the declared families.

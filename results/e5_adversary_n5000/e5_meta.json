@@ -1,0 +1,55 @@
+{
+ "vocab": [
+  "local",
+  "n10",
+  "n11",
+  "n12",
+  "n13",
+  "n14"
+ ],
+ "schedulers": {
+  "DQN-ES": {
+   "n_samples": 150000,
+   "n_runs": 30,
+   "pos_rate": 0.20036666666666667
+  },
+  "ES-only": {
+   "n_samples": 150000,
+   "n_runs": 30,
+   "pos_rate": 0.20036666666666667
+  },
+  "q-mixed[q=0.1]": {
+   "n_samples": 150000,
+   "n_runs": 30,
+   "pos_rate": 0.20036666666666667
+  },
+  "q-mixed[q=0.25]": {
+   "n_samples": 150000,
+   "n_runs": 30,
+   "pos_rate": 0.20036666666666667
+  },
+  "q-mixed[q=0.5]": {
+   "n_samples": 150000,
+   "n_runs": 30,
+   "pos_rate": 0.20036666666666667
+  },
+  "q-mixed[q=0.75]": {
+   "n_samples": 150000,
+   "n_runs": 30,
+   "pos_rate": 0.20036666666666667
+  },
+  "q-mixed[q=0]": {
+   "n_samples": 150000,
+   "n_runs": 30,
+   "pos_rate": 0.20036666666666667
+  },
+  "q-mixed[q=1]": {
+   "n_samples": 150000,
+   "n_runs": 30,
+   "pos_rate": 0.20036666666666667
+  }
+ },
+ "raw_dirs": [
+  "..\\results\\experiments_n5000\\raw\\mc_all\\n5000"
+ ]
+}

@@ -1,0 +1,85 @@
+{
+  "method": "shap",
+  "r2_score": 0.824980956758518,
+  "n_samples": 50000,
+  "n_train": 40000,
+  "n_test": 10000,
+  "feature_importances": {
+    "Heart Rate": 0.03660264925575309,
+    "SpO2 Level": 0.05852247263422292,
+    "Systolic BP": 0.032914320800710335,
+    "Diastolic BP": 0.015191066406220565,
+    "Body Temperature": 0.0219154311299792
+  },
+  "rf_feature_importances": {
+    "Heart Rate": 0.13704038322181178,
+    "SpO2 Level": 0.17564315856702997,
+    "Systolic BP": 0.25154700296058763,
+    "Diastolic BP": 0.2037717906083336,
+    "Body Temperature": 0.23199766464223712
+  },
+  "dataset": {
+    "citation": "Barman, IoMT Dataset for ML-Based Health Monitoring, Kaggle 2024, doi:10.34740/KAGGLE/DSV/7736523",
+    "file": "patients_data_with_alerts.xlsx",
+    "sha256": "845dc1ffdc68c30f1a3ab611133b1e07e02d55e77abe1364920f54456241bbcb",
+    "n_rows": 50000,
+    "feature_columns": {
+      "Heart Rate": "Heart Rate (bpm)",
+      "SpO2 Level": "SpO2 Level (%)",
+      "Systolic BP": "Systolic Blood Pressure (mmHg)",
+      "Diastolic BP": "Diastolic Blood Pressure (mmHg)",
+      "Body Temperature": "Body Temperature (\u00b0C)"
+    }
+  },
+  "label_construction": {
+    "formula": "CI = clip(max_j alert_score(alert column j) + disease_boost(disease column), 0, 1)",
+    "alert_columns": [
+      "Heart Rate Alert",
+      "SpO2 Level Alert",
+      "Blood Pressure Alert",
+      "Temperature Alert"
+    ],
+    "alert_score_map": {
+      "High": 0.7,
+      "Low": 0.75,
+      "Abnormal": 0.6,
+      "Normal": 0.1
+    },
+    "alert_score_default": 0.1,
+    "disease_columns_searched": [
+      "Predicted Disease",
+      "Disease",
+      "Diagnosis"
+    ],
+    "disease_boost_map": {
+      "Arrhythmia": 0.2,
+      "Hypertension": 0.1,
+      "Asthma": 0.12,
+      "Diabetes": 0.08,
+      "Normal": 0.0
+    },
+    "note": "the target is derived from the dataset threshold alerts, not from clinical outcomes",
+    "ci_target_summary": {
+      "min": 0.1,
+      "max": 0.95,
+      "mean": 0.7915941999999998,
+      "frac_low_lt_0.3": 0.03892,
+      "frac_high_ge_0.7": 0.93444
+    }
+  },
+  "model": {
+    "estimator": "RandomForestRegressor",
+    "n_estimators": 100,
+    "max_depth": 8,
+    "random_state": 42,
+    "split": "train_test_split(test_size=0.20, random_state=42)"
+  },
+  "shap_explainer": "TreeExplainer on the test split",
+  "versions": {
+    "shap": "0.52.0",
+    "scikit-learn": "1.9.1",
+    "numpy": "2.4.6",
+    "pandas": "3.0.3",
+    "openpyxl": "3.1.5"
+  }
+}

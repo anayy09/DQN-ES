@@ -505,7 +505,7 @@ def fig_weight_ablation(
     highci_path: Path | None = None,
 ):
     """
-    Two-panel weight-scheme ablation (Fix B).
+    Two-panel weight-scheme ablation.
 
     Top row: mixed-CI workload (20 % high, 60 % medium, 20 % low).
     Bottom row: all-high-CI ICU scenario (Phi in [0.8, 1.0]).
@@ -580,7 +580,7 @@ def fig_weight_ablation(
 # ===========================================================================
 def fig_privacy_guard_roc(metrics_path: Path, figures_dir: Path):
     """
-    Single-curve ROC loaded directly from privacy_guard_metrics.json (Fix D).
+    Single-curve ROC loaded directly from privacy_guard_metrics.json.
 
     Uses the roc_fpr / roc_tpr arrays saved by privacy_guard.py and the
     AUC value computed via sklearn.metrics.roc_auc_score (or trapezoidal
@@ -594,7 +594,7 @@ def fig_privacy_guard_roc(metrics_path: Path, figures_dir: Path):
     with open(metrics_path, 'r', encoding='utf-8') as fh:
         m = json.load(fh)
 
-    # Fix D: load the actual ROC curve from the JSON instead of recomputing
+    # Load the actual ROC curve from the JSON instead of recomputing
     fpr_arr = np.array(m.get('roc_fpr', []), dtype=float)
     tpr_arr = np.array(m.get('roc_tpr', []), dtype=float)
 
@@ -702,68 +702,6 @@ def fig_mitbih_trace(trace_path: Path, figures_dir: Path,
     _save(fig, figures_dir, 'fig10_mitbih_trace')
 
 # ===========================================================================
-# Figure 11 — M/G/1 queueing sensitivity
-# ===========================================================================
-def fig_mg1_sensitivity(mg1_path: Path, figures_dir: Path) -> None:
-    """
-    Two-panel figure for the M/G/1 sensitivity analysis.
-
-    Panel (a): mean latency (ms) vs coefficient of variation cv for each
-    algorithm — shows latency scales as (1+cv²)/2 while relative ordering
-    is preserved.
-
-    Panel (b): privacy risk vs cv for same algorithms — shows the metric is
-    completely invariant to the queuing model, confirming the privacy
-    advantage is intrinsic to DQN-ES routing rather than the M/M/1 delay.
-    """
-    if not mg1_path.exists():
-        print(f'[FIG] Skipping M/G/1: {mg1_path} not found')
-        return
-    with open(mg1_path, 'r', encoding='utf-8') as fh:
-        raw = json.load(fh)
-
-    cv_vals = sorted(raw.keys(), key=float)
-    cv_floats = [float(c) for c in cv_vals]
-
-    # Use DEFAULT_ORDER; skip Local-Only / Cloud-Only (not in M/G/1 run)
-    algs = [a for a in DEFAULT_ORDER
-            if a not in ('Local-Only', 'Cloud-Only')
-            and a in raw[cv_vals[0]]]
-
-    fig, axes = plt.subplots(1, 2, figsize=(7.16, 2.6))
-
-    for ax, key, ylabel in (
-        (axes[0], 'avg_latency_ms',   'Average latency (ms)'),
-        (axes[1], 'avg_privacy_risk', 'Privacy risk'),
-    ):
-        for alg in algs:
-            ys, es = [], []
-            for cv in cv_vals:
-                d = raw[cv].get(alg, {}).get(key, {})
-                ys.append(d.get('mean', np.nan))
-                es.append(d.get('std',  0.0))
-            y = np.array(ys); e = np.array(es); x = np.array(cv_floats)
-            s = _style_for(alg)
-            ax.plot(x, y, color=COLORS[alg], marker=MARKERS[alg],
-                    label=alg, **s)
-            ax.fill_between(x, y - e, y + e, color=COLORS[alg],
-                            alpha=0.12, linewidth=0, zorder=s['zorder'] - 5)
-        ax.set_xticks(cv_floats)
-        ax.xaxis.set_major_formatter(mticker.FormatStrFormatter('%.1f'))
-        ax.set_xlabel('Coefficient of variation $c_v$')
-        ax.set_ylabel(ylabel)
-
-    # Single shared legend below both panels
-    handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc='lower center',
-               bbox_to_anchor=(0.5, 0.02),
-               ncol=min(len(algs), 4),
-               columnspacing=0.8, handletextpad=0.4, handlelength=1.4)
-    fig.tight_layout(rect=[0, 0.10, 1, 1])
-    _save(fig, figures_dir, 'fig11_mg1_sensitivity')
-
-
-# ===========================================================================
 # Driver
 # ===========================================================================
 def main():
@@ -790,7 +728,7 @@ def main():
     fig_pareto_energy_latency(summary, fig, ref_scale=args.ref_scale)
     fig_pareto_latency_privacy(summary, fig, ref_scale=args.ref_scale)
     fig_epsilon_convergence(res / 'epsilon_trajectory.json', fig)
-    # Fix B: two-panel weight ablation (mixed-CI + all-high-CI)
+    # Two-panel weight ablation (mixed-CI + all-high-CI)
     fig_weight_ablation(
         res / 'weight_ablation_raw.json', fig,
         highci_path=res / 'weight_ablation_highci_raw.json',
@@ -798,7 +736,6 @@ def main():
     fig_privacy_guard_roc(res / 'privacy_guard_metrics.json', fig)
     fig_shap_summary(res / 'shap_feature_importance.json', fig)
     fig_mitbih_trace(res / 'mitbih_trace_raw.json', fig)
-    fig_mg1_sensitivity(res / 'mg1_sensitivity.json', fig)
     print('[FIG] Done.')
 
 

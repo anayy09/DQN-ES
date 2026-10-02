@@ -1,10 +1,10 @@
 """
-run_full_experiments.py — Q1 master Monte Carlo driver.
+run_full_experiments.py — master Monte Carlo driver.
 
-Addresses Fix 1 (N_RUNS=30 globally enforced), Fix 2 (ES-only + DQN-only
-ablations included), Fix 3 (Local-Only SLA violations now non-zero due to
-realistic cycle counts in TASK_PROFILES), Fix 5 (N=5000 scale added), and
-Fix 7 (epsilon trajectory captured for DQN-ES).
+N_RUNS=30 replicates everywhere, ES-only and DQN-only ablations included,
+realistic cycle counts in TASK_PROFILES (so Local-Only has non-zero SLA
+violations), scales up to N=5000, and the DQN-ES epsilon trajectory is
+captured.
 
 Outputs:
   results/mc_full_results.json          Per-run raw metrics
@@ -52,11 +52,20 @@ from src.config import (
     PRIMARY_SCALE,
     TASK_SCALES,
     get_full_algorithm_registry,
+    get_registry,
 )
 from src.core.task import HealthcareTask
-from src.data_ingestion.event_generator import generate_synthetic_tasks
-from src.simulation.environment import OffloadingEnvironment
-from src.simulation.topology import build_healthcare_topology
+from src.simulation.episode_log import (
+    add_queue_metrics,
+    add_steady_state,
+    raw_log_path,
+    write_raw_log,
+)
+from src.simulation.replicate import (
+    build_synthetic_replicate,
+    overrides_tag,
+    run_scheduler,
+)
 
 try:
     from tqdm import tqdm
@@ -68,33 +77,18 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def _simtask_to_healthcaretask(t, topology) -> HealthcareTask:
-    wearable_ids = [nid for nid, n in topology.nodes.items()
-                    if n.node_type == 'wearable']
-    dev_id = wearable_ids[t.device_id % len(wearable_ids)]
-    return HealthcareTask(
-        task_id=t.task_id, device_id=dev_id, timestamp=t.timestamp,
-        data_size_bits=t.data_size_bits, cpu_cycles=t.cpu_cycles,
-        max_delay_s=t.max_delay_s, privacy_sensitivity=t.privacy_sensitivity,
-        ci_score=t.ci_score, attack_probability=t.attack_probability,
-        source=t.source,
-    )
-
-
-def _run_single(alg_name, sched_cls, n_tasks, run_id, topo, seed_base):
-    """One independent Monte Carlo run for one algorithm."""
-    import random as _r
-    seed = seed_base + run_id * 1000 + n_tasks
-    _r.seed(seed)
-    np.random.seed(seed)
-
-    sim_tasks = generate_synthetic_tasks(n_tasks, ci_distribution='mixed',
-                                         seed=seed)
-    tasks = [_simtask_to_healthcaretask(t, topo) for t in sim_tasks]
-
-    sched = sched_cls(topo)
-    env = OffloadingEnvironment(topo, sched, n_tasks=n_tasks, seed=seed)
-    results = env.run(tasks)
+def _run_single(alg_name, sched_cls, n_tasks, run_id, raw_dir=None,
+                task_overrides=None, n_fog_nodes=N_FOG_NODES):
+    """One Monte Carlo replicate for one algorithm (topology per replicate)."""
+    seeds, topo, tasks = build_synthetic_replicate(
+        run_id, n_tasks, 'mixed', n_fog_nodes=n_fog_nodes,
+        task_overrides=task_overrides)
+    results, sched = run_scheduler(
+        sched_cls, topo, tasks, seeds,
+        warm_start_tasks=(task_overrides or {}).get('warm_start_tasks'))
+    if raw_dir is not None and results:
+        write_raw_log(results, raw_log_path(raw_dir, n_tasks, alg_name, run_id),
+                      alg_name, run_id, n_tasks)
 
     if not results:
         return {
@@ -114,14 +108,19 @@ def _run_single(alg_name, sched_cls, n_tasks, run_id, topo, seed_base):
                               / len(results),
         'throughput':        n_tasks / span,
     }
+    add_steady_state(metrics, results)
+    add_queue_metrics(metrics, results)
+    metrics['warm_started'] = float(getattr(sched, 'warm_started_with', 0) > 0)
 
     epsilon_history = getattr(sched, 'epsilon_history', None)
     return metrics, (list(epsilon_history) if epsilon_history else None)
 
 def _run_single_wrapper(args):
-    alg, sched_cls, n_tasks, run_id, topo, seed_base = args
+    alg, sched_cls, n_tasks, run_id, raw_dir, overrides, n_fog = args
     try:
-        m, eps_hist = _run_single(alg, sched_cls, n_tasks, run_id, topo, seed_base)
+        m, eps_hist = _run_single(alg, sched_cls, n_tasks, run_id, raw_dir,
+                                  overrides, n_fog)
+        m['run_id'] = run_id
         return run_id, m, eps_hist, None
     except Exception as exc:
         return run_id, None, None, str(exc)
@@ -134,18 +133,38 @@ def run_full(
     n_runs: int,
     results_dir: Path,
     workers: int = None,
+    registry_name: str = 'main',
+    algorithms: list[str] | None = None,
+    raw_logs: bool = True,
+    task_overrides: dict | None = None,
+    n_fog_nodes: int = N_FOG_NODES,
 ) -> Dict:
+    """
+    registry_name 'main' writes mc_full_*.json and table3_n{N}.csv;
+    'experiments' / 'all' write mc_exp_* / mc_all_* and table_exp_n{N}.csv
+    so the main-comparison files are never overwritten by decomposition arms.
+    `algorithms` restricts the run to a subset of the registry.
+    raw_logs writes one gzip CSV per run under results_dir/raw/<prefix>/.
+    task_overrides: sensitivity knobs (ecg_payload_bits, result_size_bits),
+    see simulation/replicate.apply_task_overrides.
+    """
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    topo = build_healthcare_topology(
-        n_wearables=N_WEARABLES, n_fog_nodes=N_FOG_NODES,
-        seed=GLOBAL_SEED,
-    )
-
-    registry = get_full_algorithm_registry()
+    registry = get_registry(registry_name)
+    if algorithms:
+        missing = [a for a in algorithms if a not in registry]
+        if missing:
+            raise KeyError(f'not in registry {registry_name!r}: {missing}')
+        registry = {a: registry[a] for a in algorithms}
     alg_names = list(registry.keys())
+    prefix = {'main': 'mc_full', 'experiments': 'mc_exp',
+              'all': 'mc_all'}[registry_name]
+    table_name = ('table3' if registry_name == 'main'
+                  else f'table_{registry_name[:3]}')
     metric_keys = ['avg_latency_ms', 'avg_energy_mj',
-                   'avg_privacy_risk', 'sla_violation_pct', 'throughput']
+                   'avg_privacy_risk', 'sla_violation_pct', 'throughput',
+                   'avg_privacy_risk_ss', 'avg_queue_ms', 'edge_utilisation']
+    raw_dir = (results_dir / 'raw' / prefix) if raw_logs else None
 
     mc_raw:     Dict[int, Dict[str, list]] = defaultdict(lambda: defaultdict(list))
     mc_summary: Dict[int, Dict[str, dict]] = defaultdict(dict)
@@ -165,7 +184,8 @@ def run_full(
         for alg in alg_names:
             sched_cls = registry[alg]
             for run_id in range(n_runs):
-                args_list.append((alg, sched_cls, n_tasks, run_id, topo, GLOBAL_SEED))
+                args_list.append((alg, sched_cls, n_tasks, run_id, raw_dir,
+                                  task_overrides, n_fog_nodes))
                 
         with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
             if _TQDM:
@@ -186,8 +206,8 @@ def run_full(
         for alg in alg_names:
             agg = {}
             for key in metric_keys:
-                vals = np.array([r[key] for r in mc_raw[n_tasks][alg]
-                                 if key in r], dtype=float)
+                runs = [r for r in mc_raw[n_tasks][alg] if key in r]
+                vals = np.array([r[key] for r in runs], dtype=float)
                 if len(vals):
                     agg[key] = {
                         'mean': float(vals.mean()),
@@ -196,10 +216,14 @@ def run_full(
                         'max':  float(vals.max()),
                         'n':    int(len(vals)),
                         'samples': [float(v) for v in vals],
+                        'run_ids': [int(r['run_id']) for r in runs],
                     }
+                elif key == 'avg_privacy_risk_ss':
+                    continue   # undefined: no device passed the W-decision warm-up
                 else:
                     agg[key] = {'mean': 0.0, 'std': 0.0, 'min': 0.0,
-                                'max': 0.0, 'n': 0, 'samples': []}
+                                'max': 0.0, 'n': 0, 'samples': [],
+                                'run_ids': []}
             mc_summary[n_tasks][alg] = agg
 
         _print_table(n_tasks, mc_summary[n_tasks], alg_names)
@@ -208,10 +232,10 @@ def run_full(
     print(f'\n[Q1-MC] Total wall time: {elapsed:.1f}s')
 
     # Persist
-    _save_json(mc_raw,     results_dir / 'mc_full_results.json')
-    _save_json(mc_summary, results_dir / 'mc_full_summary.json')
+    _save_json(mc_raw,     results_dir / f'{prefix}_results.json')
+    _save_json(mc_summary, results_dir / f'{prefix}_summary.json')
 
-    if eps_trajectories:
+    if eps_trajectories and registry_name == 'main':
         _save_json(eps_trajectories,
                    results_dir / 'epsilon_trajectory.json')
         print(f'[Q1-MC] Captured epsilon trajectories for '
@@ -219,12 +243,12 @@ def run_full(
 
     # Table III CSV at primary scale
     _save_table3_csv(mc_summary, alg_names,
-                     results_dir / f'table3_n{PRIMARY_SCALE}.csv')
+                     results_dir / f'{table_name}_n{PRIMARY_SCALE}.csv')
     return mc_summary
 
 
 def _print_table(n_tasks, scale, alg_names):
-    hdr = (f"{'Algorithm':<12} {'Lat ms':>10} {'Eng mJ':>10} "
+    hdr = (f"{'Algorithm':<18} {'Lat ms':>10} {'Eng mJ':>10} "
            f"{'Priv':>8} {'SLA%':>8} {'Tput':>10}")
     print(f'  {hdr}\n  {"-"*len(hdr)}')
     for alg in alg_names:
@@ -235,7 +259,7 @@ def _print_table(n_tasks, scale, alg_names):
         sla = d.get('sla_violation_pct', {}).get('mean', 0)
         thr = d.get('throughput', {}).get('mean', 0)
         tag = '*' if alg == 'DQN-ES' else ' '
-        print(f'  {alg+tag:<12} {lat:>10.2f} {eng:>10.4f} '
+        print(f'  {alg+tag:<18} {lat:>10.2f} {eng:>10.4f} '
               f'{prv:>8.4f} {sla:>8.2f} {thr:>10.1f}')
 
 
@@ -298,6 +322,39 @@ def main():
                         help='Override results directory')
     parser.add_argument('--quick', action='store_true',
                         help='5 runs only — debug, not for publication')
+    parser.add_argument('--registry', choices=['main', 'experiments', 'all'],
+                        default='main',
+                        help='main = 9-algorithm comparison; experiments = '
+                             'E1-E3 decomposition arms (K-sweep, Random-K, '
+                             'q-mixed, Static-Tier, lambda_P)')
+    parser.add_argument('--algorithms', nargs='+', default=None,
+                        help='Restrict to these registry names')
+    parser.add_argument('--workers', type=int, default=None)
+    parser.add_argument('--no-raw', action='store_true',
+                        help='Do not write per-run raw logs under results/raw/')
+    parser.add_argument('--n-fog', type=int, default=N_FOG_NODES,
+                        help='Fog-node count M (E4; action set = M + 2)')
+    parser.add_argument('--ecg-payload-bits', type=int, default=None,
+                        help='Override ECG D_i (sensitivity; config '
+                             'ECG_PAYLOAD_SENSITIVITY_BITS = 80000 = 10 KB)')
+    parser.add_argument('--arrival', choices=['poisson', 'mmpp2'],
+                        default='poisson', help='Arrival process (E7)')
+    parser.add_argument('--load-rho', type=float, default=None,
+                        help='Target offered edge utilisation (E7), sets the '
+                             'absolute arrival rate')
+    parser.add_argument('--fading', choices=['rayleigh'], default=None,
+                        help='Rayleigh block fading on the wearable link (E7b)')
+    parser.add_argument('--packet-loss', type=float, default=None,
+                        help='Per-packet loss probability with ARQ (E7b)')
+    parser.add_argument('--ci-noise', type=float, default=None,
+                        help='Gaussian sigma on the scheduler-visible CI (E14)')
+    parser.add_argument('--ci-misclass', type=float, default=None,
+                        help='CI tier misclassification probability (E14)')
+    parser.add_argument('--warm-start', type=int, default=None,
+                        help='Pre-train DQN arms on N_pre tasks (E12)')
+    parser.add_argument('--result-size-bits', type=int, default=None,
+                        help='Override result size S_res (sensitivity; '
+                             'config RESULT_SIZE_SENSITIVITY_BITS)')
     args = parser.parse_args()
 
     n_runs = 5 if args.quick else args.n_runs
@@ -305,10 +362,36 @@ def main():
 
     script_dir = Path(__file__).resolve().parent
     project_root = script_dir.parent.parent.parent
+    overrides = {'ecg_payload_bits': args.ecg_payload_bits,
+                 'result_size_bits': args.result_size_bits,
+                 'arrival_process': (args.arrival if args.arrival != 'poisson'
+                                     else None),
+                 'load_rho': args.load_rho,
+                 'warm_start_tasks': args.warm_start,
+                 'ci_noise_sigma': args.ci_noise,
+                 'ci_misclass_prob': args.ci_misclass,
+                 'fading': args.fading,
+                 'packet_loss': args.packet_loss}
+    overrides = {k: v for k, v in overrides.items() if v is not None} or None
     results_dir = (Path(args.output) if args.output
                    else project_root / 'results')
+    if overrides and not args.output:
+        # Never let a sensitivity run overwrite the main-model files
+        results_dir = results_dir / 'sensitivity' / overrides_tag(overrides)
+    if args.n_fog != N_FOG_NODES and not args.output:
+        results_dir = results_dir / 'scaling' / f'M{args.n_fog}'
 
-    run_full(scales, n_runs, results_dir)
+    from src.analysis.manifest import Manifest
+    with Manifest(results_dir, f'cli_run_full_{args.registry}', vars(args),
+                  n_runs=n_runs, scales=scales):
+        _run_full_cli(args, scales, n_runs, results_dir, overrides)
+
+
+def _run_full_cli(args, scales, n_runs, results_dir, overrides):
+    run_full(scales, n_runs, results_dir, workers=args.workers,
+             registry_name=args.registry, algorithms=args.algorithms,
+             raw_logs=not args.no_raw, task_overrides=overrides,
+             n_fog_nodes=args.n_fog)
 
 
 if __name__ == '__main__':

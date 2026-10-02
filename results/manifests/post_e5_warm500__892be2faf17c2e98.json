@@ -1,0 +1,59 @@
+{
+ "run_id": "892be2faf17c2e98",
+ "step": "post_e5_warm500",
+ "code": {
+  "git_commit": "77a1d8045abada9f0209642658c2fe057fba95f2",
+  "git_tag": null,
+  "git_dirty": true,
+  "git_dirty_paths": [
+   ".gitignore"
+  ],
+  "entrypoint": "C:\\Users\\sinhal.anay\\OneDrive - University of Florida\\Papers\\Bio-Inspired Adaptive Task Offloading System\\code\\src\\analysis\\post_run.py e5 --raw-dirs ../results/sensitivity/warm500/raw/mc_all/n1000 --out ../results/e5_adversary_warm500 --workers 3 --step post_e5_warm500 --label secondary (P4-1), not pre-declared"
+ },
+ "config": {
+  "resolved_sha256": "1843622048fbcf2090d8995ecc2c5ce73cc0bf4ab73debd625f9b6e7174f4c7b",
+  "params": {
+   "command": "e5",
+   "raw_dirs": [
+    "results/sensitivity/warm500/raw/mc_all/n1000"
+   ],
+   "out": "results/e5_adversary_warm500",
+   "algorithms": null,
+   "e5_dir": null,
+   "summaries": [],
+   "scale": 1000,
+   "pairs": [],
+   "tag": "pairs",
+   "label": "secondary (P4-1), not pre-declared"
+  }
+ },
+ "seeds": {
+  "rule": "replicate_seed(r, N) = 42 + 1000 r + N for tasks and scheduler; topology/env/arrival/ci_noise/pretrain streams = SeedSequence(replicate_seed(r, N)).spawn(5)",
+  "base_seeds": {}
+ },
+ "data": {},
+ "env": {
+  "cpu": "Intel(R) Core(TM) Ultra 7 266V",
+  "logical_cpus": 8,
+  "os": "win32",
+  "python": "3.14.6",
+  "numpy": "2.4.6",
+  "packages": {
+   "numpy": "2.4.6",
+   "scipy": "1.17.1",
+   "scikit-learn": "1.9.1",
+   "shap": "0.52.0",
+   "pandas": "3.0.3",
+   "matplotlib": "3.11.0"
+  }
+ },
+ "determinism": {
+  "claimed_deterministic": true,
+  "note": "all RNGs seeded per replicate; bitwise equality is expected on the same machine and library versions; BLAS reduction order may differ across machines"
+ },
+ "outputs": [],
+ "started_utc": "2026-10-01T17:52:25Z",
+ "finished_utc": "2026-10-01T17:56:45Z",
+ "wall_s": 259.6,
+ "status": "finished"
+}

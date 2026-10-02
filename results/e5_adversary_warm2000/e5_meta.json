@@ -1,0 +1,40 @@
+{
+ "vocab": [
+  "local",
+  "n10",
+  "n11",
+  "n12",
+  "n13",
+  "n14"
+ ],
+ "schedulers": {
+  "DQN-ES": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "ES-only": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "Random-K[K=3]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "Static-Tier": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "q-mixed[q=0.5]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  }
+ },
+ "raw_dirs": [
+  "..\\results\\sensitivity\\warm2000\\raw\\mc_all\\n1000"
+ ]
+}

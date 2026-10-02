@@ -1,0 +1,63 @@
+{
+ "run_id": "87901c8100bc5f9a",
+ "step": "post_e11",
+ "code": {
+  "git_commit": "e9eee42559ba1fee54b94c4a6d2bea33189206ad",
+  "git_tag": null,
+  "git_dirty": true,
+  "git_dirty_paths": [
+   ".gitignore",
+   "results/manifests/runs.jsonl"
+  ],
+  "entrypoint": "C:\\Users\\sinhal.anay\\OneDrive - University of Florida\\Papers\\Bio-Inspired Adaptive Task Offloading System\\code\\src\\analysis\\post_run.py e11 --raw-dirs ../results/raw/mc_full/n1000 ../results/experiments/raw/mc_exp/n1000 --out ../results/e11_exploration --algorithms DQN-ES DQN-only DQN-ES[K=2] DQN-ES[K=4] DQN-ES[K=5]"
+ },
+ "config": {
+  "resolved_sha256": "d3fd1b8eeb2a28fafa5ceba79da7c02a5d55ac24fdc78b973ca76fcbf46cea95",
+  "params": {
+   "command": "e11",
+   "raw_dirs": [
+    "results/raw/mc_full/n1000",
+    "results/experiments/raw/mc_exp/n1000"
+   ],
+   "out": "results/e11_exploration",
+   "algorithms": [
+    "DQN-ES",
+    "DQN-only",
+    "DQN-ES[K=2]",
+    "DQN-ES[K=4]",
+    "DQN-ES[K=5]"
+   ],
+   "e5_dir": null,
+   "summaries": [],
+   "scale": 1000
+  }
+ },
+ "seeds": {
+  "rule": "replicate_seed(r, N) = 42 + 1000 r + N for tasks and scheduler; topology/env/arrival/ci_noise/pretrain streams = SeedSequence(replicate_seed(r, N)).spawn(5)",
+  "base_seeds": {}
+ },
+ "data": {},
+ "env": {
+  "cpu": "Intel(R) Core(TM) Ultra 7 266V",
+  "logical_cpus": 8,
+  "os": "win32",
+  "python": "3.14.6",
+  "numpy": "2.4.6",
+  "packages": {
+   "numpy": "2.4.6",
+   "scipy": "1.17.1",
+   "scikit-learn": "1.9.1",
+   "pandas": "3.0.3",
+   "matplotlib": "3.11.0"
+  }
+ },
+ "determinism": {
+  "claimed_deterministic": true,
+  "note": "all RNGs seeded per replicate; bitwise equality is expected on the same machine and library versions; BLAS reduction order may differ across machines"
+ },
+ "outputs": [],
+ "started_utc": "2026-09-30T16:56:05Z",
+ "finished_utc": "2026-09-30T16:56:09Z",
+ "wall_s": 4.6,
+ "status": "finished"
+}

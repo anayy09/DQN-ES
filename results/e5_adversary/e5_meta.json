@@ -1,0 +1,161 @@
+{
+ "vocab": [
+  "local",
+  "n10",
+  "n11",
+  "n12",
+  "n13",
+  "n14"
+ ],
+ "schedulers": {
+  "ACO": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "Cloud-Only": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "DQN-ES": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "DQN-ES[K=1]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "DQN-ES[K=2]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "DQN-ES[K=3]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "DQN-ES[K=4]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "DQN-ES[K=5]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "DQN-only": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "ES-only": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "ES-only[lP=0.5]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "ES-only[lP=1.5]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "ES-only[lP=10]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "ES-only[lP=1]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "ES-only[lP=2]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "ES-only[lP=3]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "ES-only[lP=5]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "HS-HHO": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "Local-Only": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "PSO": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "PSO+DQN": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "Random-K[K=3]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "Static-Tier": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "q-mixed[q=0.1]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "q-mixed[q=0.25]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "q-mixed[q=0.5]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "q-mixed[q=0.75]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "q-mixed[q=0]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  },
+  "q-mixed[q=1]": {
+   "n_samples": 30000,
+   "n_runs": 30,
+   "pos_rate": 0.1982
+  }
+ },
+ "raw_dirs": [
+  "..\\results\\raw\\mc_full\\n1000",
+  "..\\results\\experiments\\raw\\mc_exp\\n1000"
+ ]
+}

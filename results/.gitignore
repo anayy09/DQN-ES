@@ -1,0 +1,4 @@
+# Per-run raw logs (gzip CSV) are written to raw/ inside every output
+# directory; too large for git (~670 MB for round2-freeze-1). Archive them
+# with the release instead.
+raw/

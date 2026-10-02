@@ -1,0 +1,25 @@
+{
+ "note": "schedulers in one group have identical destination traces on every replicate (hence identical E5 features and AUCs)",
+ "groups": [
+  [
+   "DQN-ES",
+   "DQN-ES[K=3]",
+   "PSO+DQN"
+  ],
+  [
+   "DQN-ES[K=1]",
+   "DQN-only"
+  ],
+  [
+   "DQN-ES[K=5]",
+   "ES-only",
+   "ES-only[lP=1]",
+   "HS-HHO",
+   "q-mixed[q=0]"
+  ],
+  [
+   "Random-K[K=3]",
+   "q-mixed[q=1]"
+  ]
+ ]
+}
