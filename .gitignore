@@ -10,3 +10,4 @@ submission/
 docs/
 *.md
 !README.md
+.env
